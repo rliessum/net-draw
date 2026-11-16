@@ -1,0 +1,27 @@
+{
+  "$schema": "https://t3.codes/schema/t3.json",
+  "defaultThreadEnvMode": "worktree",
+  "scripts": [
+    {
+      "name": "Dev Server",
+      "command": "python3 -m http.server 4173 --bind 127.0.0.1",
+      "icon": "play",
+      "runOnWorktreeCreate": false,
+      "stopOnSettle": true,
+      "previewUrl": "http://127.0.0.1:4173",
+      "autoOpenPreview": true
+    },
+    {
+      "name": "Verify App",
+      "command": "bash -c 'trap \".agents/skills/verify-net-draw/scripts/control-net-draw stop --run t3-smoke >/dev/null 2>&1 || true\" EXIT; .agents/skills/verify-net-draw/scripts/control-net-draw start --run t3-smoke && .agents/skills/verify-net-draw/scripts/control-net-draw doctor --run t3-smoke'",
+      "icon": "test",
+      "runOnWorktreeCreate": false
+    },
+    {
+      "name": "Validate Examples",
+      "command": ".agents/skills/verify-net-draw/scripts/control-net-draw validate-examples",
+      "icon": "lint",
+      "runOnWorktreeCreate": false
+    }
+  ]
+}

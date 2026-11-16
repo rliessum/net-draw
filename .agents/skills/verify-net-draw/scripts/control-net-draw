@@ -1,0 +1,1683 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * control-net-draw — Zero-dependency verification harness for NetDraw.
+ *
+ * Drives the real NetDraw static web app over HTTP and Chrome DevTools Protocol
+ * (CDP) using Node's built-in http, child_process, fs, crypto, fetch, and WebSocket.
+ *
+ * Every run gets its own ephemeral HTTP port, isolated Chrome --user-data-dir
+ * (fresh localStorage), scratch runtime directory (/tmp/net-draw-verify-<run>),
+ * and persistent evidence directory (/tmp/net-draw-evidence-<run>) that survives stop.
+ */
+
+const fs = require("node:fs");
+const path = require("node:path");
+const http = require("node:http");
+const crypto = require("node:crypto");
+const { spawn, execFileSync } = require("node:child_process");
+
+const REAL_SCRIPT = fs.realpathSync(__filename);
+const DEFAULT_REPO_ROOT = path.resolve(path.dirname(REAL_SCRIPT), "../../../..");
+
+const MIME_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".gif": "image/gif",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".ico": "image/x-icon",
+};
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sha256File(filePath) {
+  return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
+
+function sha256Buffer(buf) {
+  return crypto.createHash("sha256").update(buf).digest("hex");
+}
+
+const NL = String.fromCharCode(10);
+const CR = String.fromCharCode(13);
+
+function fail(msg, extra = {}) {
+  const payload = { ok: false, error: msg, ...extra };
+  process.stderr.write(JSON.stringify(payload, null, 2) + NL);
+  process.exit(1);
+}
+
+function ok(payload) {
+  process.stdout.write(JSON.stringify({ ok: true, ...payload }, null, 2) + NL);
+}
+
+function parseArgs(argv) {
+  const positional = [];
+  const flags = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith("--")) {
+      const eq = a.indexOf("=");
+      if (eq !== -1) {
+        flags[a.slice(2, eq)] = a.slice(eq + 1);
+      } else {
+        const key = a.slice(2);
+        const next = argv[i + 1];
+        if (next === undefined || next.startsWith("--")) {
+          flags[key] = true;
+        } else {
+          flags[key] = next;
+          i++;
+        }
+      }
+    } else {
+      positional.push(a);
+    }
+  }
+  return { positional, flags };
+}
+
+function scratchDirFor(runId) {
+  if (!runId || !/^[a-zA-Z0-9._-]+$/.test(String(runId))) {
+    fail("Missing or invalid --run <id> (use letters, digits, '.', '_', or '-').");
+  }
+  return `/tmp/net-draw-verify-${runId}`;
+}
+
+function defaultEvidenceDirFor(runId) {
+  return `/tmp/net-draw-evidence-${runId}`;
+}
+
+function loadInstance(runId) {
+  const dir = scratchDirFor(runId);
+  const instPath = path.join(dir, "instance.json");
+  if (!fs.existsSync(instPath)) {
+    fail(`No active instance metadata at ${instPath}. Run 'start --run ${runId}' first.`);
+  }
+  return JSON.parse(fs.readFileSync(instPath, "utf8"));
+}
+
+function resolveOutPath(inst, outArg) {
+  if (!outArg) fail("Missing required --out <path>.");
+  const resolved = path.isAbsolute(outArg)
+    ? outArg
+    : path.join(inst.evidenceDir, outArg);
+  fs.mkdirSync(path.dirname(resolved), { recursive: true });
+  return resolved;
+}
+
+function pidCmdline(pid) {
+  if (!pid || typeof pid !== "number") return null;
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return null;
+  }
+  try {
+    const raw = fs.readFileSync(`/proc/${pid}/cmdline`, "utf8");
+    return raw.replace(/\0+/g, " ").trim();
+  } catch {
+    return "";
+  }
+}
+
+function isOwnedPid(pid, expectedToken) {
+  const cmd = pidCmdline(pid);
+  if (cmd === null) return false;
+  return cmd.includes(expectedToken);
+}
+
+async function terminateOwnedPid(pid, expectedToken) {
+  if (!isOwnedPid(pid, expectedToken)) {
+    return { pid, terminated: false, reason: "not-running-or-not-owned" };
+  }
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    return { pid, terminated: false, reason: "already-exited" };
+  }
+  for (let i = 0; i < 30; i++) {
+    await sleep(100);
+    if (pidCmdline(pid) === null) {
+      return { pid, terminated: true, signal: "SIGTERM" };
+    }
+  }
+  if (isOwnedPid(pid, expectedToken)) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {}
+    await sleep(100);
+    return { pid, terminated: pidCmdline(pid) === null, signal: "SIGKILL" };
+  }
+  return { pid, terminated: true, signal: "SIGTERM" };
+}
+
+function findChromeBinary() {
+  const candidates = [
+    process.env.CHROME_BIN,
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+  ].filter(Boolean);
+  for (const c of candidates) {
+    try {
+      fs.accessSync(c, fs.constants.X_OK);
+      return c;
+    } catch {}
+  }
+  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
+    try {
+      const out = execFileSync("which", [name], { encoding: "utf8" }).trim();
+      if (out) return out;
+    } catch {}
+  }
+  fail("No Chrome/Chromium executable found. Set CHROME_BIN to a valid binary path.");
+}
+
+function getGitHead(repoRoot) {
+  try {
+    return execFileSync("git", ["-C", repoRoot, "--no-pager", "rev-parse", "--short", "HEAD"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "unknown";
+  }
+}
+
+/* ---------- internal static HTTP server ---------- */
+async function runStaticServer(portArg, repoRoot, readyFile) {
+  const rootReal = fs.realpathSync(repoRoot);
+  let persistentBrowserCdp = null;
+  let persistentPageCdp = null;
+
+  const server = http.createServer((req, res) => {
+    try {
+      const urlObj = new URL(req.url || "/", "http://127.0.0.1");
+      if (urlObj.pathname === "/__netdraw_verify_health") {
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+        res.end(JSON.stringify({ ok: true, pid: process.pid, repoRoot: rootReal }));
+        return;
+      }
+      if (urlObj.pathname === "/__netdraw_verify_attach_cdp" && req.method === "POST") {
+        let body = "";
+        req.on("data", (ch) => { body += ch; });
+        req.on("end", async () => {
+          try {
+            const cfg = JSON.parse(body);
+            if (persistentBrowserCdp) persistentBrowserCdp.close();
+            if (persistentPageCdp) persistentPageCdp.close();
+            persistentBrowserCdp = await CDPClient.connect(cfg.browserWsUrl);
+            await persistentBrowserCdp.send("Browser.setDownloadBehavior", {
+              behavior: "allow",
+              downloadPath: cfg.downloadsDir,
+              eventsEnabled: true,
+            });
+            const pageWsUrl = await getPageWsUrl(cfg.cdpPort, cfg.origin);
+            persistentPageCdp = await CDPClient.connect(pageWsUrl);
+            await persistentPageCdp.send("Page.setDownloadBehavior", {
+              behavior: "allow",
+              downloadPath: cfg.downloadsDir,
+            }).catch(() => {});
+            await persistentPageCdp.send("Emulation.setDeviceMetricsOverride", {
+              width: cfg.width,
+              height: cfg.height,
+              deviceScaleFactor: 1,
+              mobile: false,
+            });
+            res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+            res.end(JSON.stringify({ ok: true }));
+          } catch (err) {
+            res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+            res.end(JSON.stringify({ ok: false, error: err.message }));
+          }
+        });
+        return;
+      }
+      if (urlObj.pathname === "/__netdraw_verify_resize" && req.method === "POST") {
+        let body = "";
+        req.on("data", (ch) => { body += ch; });
+        req.on("end", async () => {
+          try {
+            const { width, height } = JSON.parse(body);
+            if (persistentPageCdp) {
+              await persistentPageCdp.send("Emulation.setDeviceMetricsOverride", {
+                width,
+                height,
+                deviceScaleFactor: 1,
+                mobile: false,
+              });
+            }
+            res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+            res.end(JSON.stringify({ ok: true }));
+          } catch (err) {
+            res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+            res.end(JSON.stringify({ ok: false, error: err.message }));
+          }
+        });
+        return;
+      }
+      const rel = decodeURIComponent(urlObj.pathname === "/" ? "/index.html" : urlObj.pathname);
+      const joined = path.resolve(rootReal, "." + rel);
+      if (joined !== rootReal && !joined.startsWith(rootReal + path.sep)) {
+        res.writeHead(403);
+        res.end("Forbidden");
+        return;
+      }
+      if (joined.split(path.sep).includes(".git")) {
+        res.writeHead(404);
+        res.end("Not Found");
+        return;
+      }
+      const stat = fs.statSync(joined);
+      if (!stat.isFile()) {
+        res.writeHead(404);
+        res.end("Not Found");
+        return;
+      }
+      const ext = path.extname(joined).toLowerCase();
+      res.writeHead(200, {
+        "Content-Type": MIME_TYPES[ext] || "application/octet-stream",
+        "Cache-Control": "no-store",
+      });
+      if (req.method === "HEAD") {
+        res.end();
+        return;
+      }
+      fs.createReadStream(joined).pipe(res);
+    } catch {
+      res.writeHead(404);
+      res.end("Not Found");
+    }
+  });
+
+  server.listen(Number(portArg) || 0, "127.0.0.1", () => {
+    const addr = server.address();
+    fs.writeFileSync(
+      readyFile,
+      JSON.stringify({ pid: process.pid, port: addr.port, repoRoot: rootReal }),
+      "utf8"
+    );
+  });
+
+  const shutdown = () => {
+    if (persistentPageCdp) persistentPageCdp.close();
+    if (persistentBrowserCdp) persistentBrowserCdp.close();
+    server.close(() => process.exit(0));
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+}
+
+/* ---------- minimal CDP client over Node native WebSocket ---------- */
+class CDPClient {
+  constructor(ws) {
+    this.ws = ws;
+    this.seq = 1;
+    this.pending = new Map();
+    this.listeners = new Map();
+
+    ws.addEventListener("message", (ev) => {
+      const msg = JSON.parse(typeof ev.data === "string" ? ev.data : ev.data.toString());
+      if (msg.id) {
+        const entry = this.pending.get(msg.id);
+        if (entry) {
+          this.pending.delete(msg.id);
+          if (msg.error) entry.reject(new Error(`CDP ${entry.method}: ${msg.error.message}`));
+          else entry.resolve(msg.result);
+        }
+      } else if (msg.method) {
+        const list = this.listeners.get(msg.method) || [];
+        for (const fn of list) fn(msg.params || {});
+      }
+    });
+
+    ws.addEventListener("close", () => {
+      for (const [, entry] of this.pending) {
+        entry.reject(new Error(`CDP socket closed during ${entry.method}`));
+      }
+      this.pending.clear();
+    });
+  }
+
+  static async connect(wsUrl, timeoutMs = 8000) {
+    const ws = new WebSocket(wsUrl);
+    await new Promise((resolve, reject) => {
+      const t = setTimeout(() => {
+        try { ws.close(); } catch {}
+        reject(new Error(`Timed out connecting to CDP at ${wsUrl}`));
+      }, timeoutMs);
+      ws.addEventListener("open", () => { clearTimeout(t); resolve(); }, { once: true });
+      ws.addEventListener("error", (err) => { clearTimeout(t); reject(err.error || new Error("WebSocket error")); }, { once: true });
+    });
+    return new CDPClient(ws);
+  }
+
+  on(method, fn) {
+    const list = this.listeners.get(method) || [];
+    list.push(fn);
+    this.listeners.set(method, list);
+  }
+
+  send(method, params = {}, timeoutMs = 15000) {
+    const id = this.seq++;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`CDP timeout (${timeoutMs}ms) calling ${method}`));
+      }, timeoutMs);
+      this.pending.set(id, {
+        method,
+        resolve: (v) => { clearTimeout(timer); resolve(v); },
+        reject: (e) => { clearTimeout(timer); reject(e); },
+      });
+      this.ws.send(JSON.stringify({ id, method, params }));
+    });
+  }
+
+  async evalValue(expression) {
+    const res = await this.send("Runtime.evaluate", {
+      expression,
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    if (res.exceptionDetails) {
+      const desc = res.exceptionDetails.exception?.description || res.exceptionDetails.text || "JS evaluation error";
+      throw new Error(desc);
+    }
+    return res.result?.value;
+  }
+
+  close() {
+    try { this.ws.close(); } catch {}
+  }
+}
+
+async function getPageWsUrl(cdpPort, expectedOrigin) {
+  const resp = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
+  if (!resp.ok) throw new Error(`CDP /json/list returned HTTP ${resp.status}`);
+  const targets = await resp.json();
+  const page =
+    targets.find((t) => t.type === "page" && t.url.startsWith(expectedOrigin)) ||
+    targets.find((t) => t.type === "page");
+  if (!page || !page.webSocketDebuggerUrl) {
+    throw new Error("No inspectable Chrome page target found.");
+  }
+  return page.webSocketDebuggerUrl;
+}
+
+async function withPage(inst, fn) {
+  const wsUrl = await getPageWsUrl(inst.cdpPort, inst.origin);
+  const cdp = await CDPClient.connect(wsUrl);
+  try {
+    return await fn(cdp);
+  } finally {
+    cdp.close();
+  }
+}
+
+async function ensureDownloadsConfigured(inst) {
+  const browserCdp = await CDPClient.connect(inst.browserWsUrl);
+  try {
+    await browserCdp.send("Browser.setDownloadBehavior", {
+      behavior: "allow",
+      downloadPath: inst.downloadsDir,
+      eventsEnabled: true,
+    });
+  } finally {
+    browserCdp.close();
+  }
+}
+
+/* ---------- DOM / ARIA point lookup (read-only) ---------- */
+function browserFindTargetPoint({ selector, role, name, nth }) {
+  function collapseWs(s) {
+    return (s || "").replace(/\s+/g, " ").trim();
+  }
+
+  function isVisible(el) {
+    if (!el) return false;
+    const st = getComputedStyle(el);
+    if (st.display === "none" || st.visibility === "hidden") return false;
+    let cur = el.parentElement;
+    while (cur) {
+      const pst = getComputedStyle(cur);
+      if (pst.display === "none" || pst.visibility === "hidden") return false;
+      cur = cur.parentElement;
+    }
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
+
+  function implicitRole(el) {
+    const explicit = el.getAttribute && el.getAttribute("role");
+    if (explicit) return explicit.toLowerCase();
+    const tag = (el.tagName || "").toLowerCase();
+    if (tag === "button") return "button";
+    if (tag === "a" && el.hasAttribute("href")) return "link";
+    if (tag === "select") return "combobox";
+    if (tag === "textarea") return "textbox";
+    if (tag === "input") {
+      const t = (el.getAttribute("type") || "text").toLowerCase();
+      if (t === "checkbox") return "checkbox";
+      if (t === "radio") return "radio";
+      if (t === "button" || t === "submit") return "button";
+      return "textbox";
+    }
+    return tag;
+  }
+
+  function accessibleName(el) {
+    const aria = el.getAttribute && el.getAttribute("aria-label");
+    if (aria && aria.trim()) return collapseWs(aria);
+    if (el.id) {
+      const lbl = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+      if (lbl && lbl.innerText.trim()) return collapseWs(lbl.innerText);
+    }
+    const wrapLabel = el.closest && el.closest("label");
+    if (wrapLabel && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA")) {
+      return collapseWs(wrapLabel.innerText);
+    }
+    const prevLabel = el.previousElementSibling;
+    if (prevLabel && prevLabel.tagName === "LABEL" && prevLabel.innerText.trim()) {
+      return collapseWs(prevLabel.innerText);
+    }
+    const txt = collapseWs(el.innerText || el.textContent || "");
+    if (txt) return txt;
+    const title = el.getAttribute && el.getAttribute("title");
+    if (title && title.trim()) return collapseWs(title);
+    const ph = el.getAttribute && el.getAttribute("placeholder");
+    if (ph && ph.trim()) return collapseWs(ph);
+    return "";
+  }
+
+  let matches = [];
+  if (selector) {
+    matches = Array.from(document.querySelectorAll(selector)).filter((el) => {
+      if (el.matches && el.matches(".port, [data-port]")) return true;
+      return isVisible(el);
+    });
+  } else {
+    const all = Array.from(document.querySelectorAll("button, input, select, textarea, [role], .pitem, .exitem, .thitem, .fxchip, .expchip"));
+    matches = all.filter((el) => {
+      if (!isVisible(el)) return false;
+      if (role && implicitRole(el) !== role.toLowerCase()) return false;
+      if (name !== null) {
+        const an = accessibleName(el);
+        const ti = collapseWs(el.getAttribute("title") || "");
+        return an === name || ti === name || an.includes(name) || ti.startsWith(name);
+      }
+      return true;
+    });
+  }
+
+  if (!matches.length || !matches[nth]) {
+    return { found: false, count: matches.length };
+  }
+
+  const target = matches[nth];
+  if (!(target instanceof SVGElement) && target.scrollIntoView) {
+    target.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
+  let x, y;
+  if (target.matches && target.matches("g.edge, g[data-edge]")) {
+    const p = target.querySelector("path.vis") || target.querySelector("path");
+    const pt = p.getPointAtLength(p.getTotalLength() * 0.5);
+    const ctm = p.getScreenCTM();
+    x = ctm.a * pt.x + ctm.c * pt.y + ctm.e;
+    y = ctm.b * pt.x + ctm.d * pt.y + ctm.f;
+  } else if (target.matches && target.matches("g.zoneg, g[data-zone]")) {
+    const r = target.getBoundingClientRect();
+    x = r.left + r.width / 2;
+    y = r.top + r.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    if (!hit || !target.contains(hit)) {
+      const txt = target.querySelector("text");
+      const tr = txt ? txt.getBoundingClientRect() : null;
+      if (tr && tr.width > 0) {
+        x = tr.left + tr.width / 2;
+        y = tr.top + tr.height / 2;
+      } else {
+        x = r.left + 16;
+        y = r.top + 16;
+      }
+    }
+  } else if (target.matches && target.matches("g.nodeg, g[data-node]")) {
+    const card = target.querySelector(".card") || target;
+    const r = card.getBoundingClientRect();
+    x = r.left + r.width / 2;
+    y = r.top + r.height / 2;
+  } else {
+    const r = target.getBoundingClientRect();
+    x = r.left + r.width / 2;
+    y = r.top + r.height / 2;
+  }
+
+  return {
+    found: true,
+    x: Math.round(x * 10) / 10,
+    y: Math.round(y * 10) / 10,
+    tag: (target.tagName || "").toLowerCase(),
+    id: target.id || null,
+    text: collapseWs(target.innerText || target.textContent || "").slice(0, 80),
+  };
+}
+
+async function resolveTargetPoint(cdp, flags) {
+  const selector = flags.selector || null;
+  const role = flags.role || null;
+  const name = flags.name !== undefined ? String(flags.name) : null;
+  const nth = flags.nth !== undefined ? Number(flags.nth) : 0;
+
+  if (!selector && !role && name === null) {
+    fail("Provide --selector <css> or --role <role> --name <accessibleName>.");
+  }
+
+  const info = await cdp.evalValue(
+    `(${browserFindTargetPoint.toString()})(${JSON.stringify({ selector, role, name, nth })})`
+  );
+
+  if (!info || !info.found) {
+    fail("Target element not found or not visible.", { selector, role, name, nth });
+  }
+  return info;
+}
+
+/* ---------- keyboard map ---------- */
+function keyDescriptor(rawKey) {
+  const k = String(rawKey);
+  const special = {
+    Enter: { key: "Enter", code: "Enter", keyCode: 13, text: CR },
+    Escape: { key: "Escape", code: "Escape", keyCode: 27 },
+    Backspace: { key: "Backspace", code: "Backspace", keyCode: 8 },
+    Delete: { key: "Delete", code: "Delete", keyCode: 46 },
+    Tab: { key: "Tab", code: "Tab", keyCode: 9 },
+    Space: { key: " ", code: "Space", keyCode: 32, text: " " },
+    " ": { key: " ", code: "Space", keyCode: 32, text: " " },
+    ArrowRight: { key: "ArrowRight", code: "ArrowRight", keyCode: 39 },
+    ArrowLeft: { key: "ArrowLeft", code: "ArrowLeft", keyCode: 37 },
+    ArrowUp: { key: "ArrowUp", code: "ArrowUp", keyCode: 38 },
+    ArrowDown: { key: "ArrowDown", code: "ArrowDown", keyCode: 40 },
+    Home: { key: "Home", code: "Home", keyCode: 36 },
+    End: { key: "End", code: "End", keyCode: 35 },
+    "+": { key: "+", code: "Equal", keyCode: 187, text: "+" },
+    "=": { key: "=", code: "Equal", keyCode: 187, text: "=" },
+    "-": { key: "-", code: "Minus", keyCode: 189, text: "-" },
+  };
+  if (special[k]) return special[k];
+  if (k.length === 1 && /[a-zA-Z]/.test(k)) {
+    const upper = k.toUpperCase();
+    return { key: k, code: `Key${upper}`, keyCode: upper.charCodeAt(0), text: k };
+  }
+  if (k.length === 1 && /[0-9]/.test(k)) {
+    return { key: k, code: `Digit${k}`, keyCode: k.charCodeAt(0), text: k };
+  }
+  return { key: k, code: k, keyCode: k.charCodeAt(0) || 0, text: k.length === 1 ? k : undefined };
+}
+
+async function dispatchKey(cdp, rawKey, modifiers = 0) {
+  const desc = keyDescriptor(rawKey);
+  const hasCtrlOrMeta = (modifiers & 2) !== 0 || (modifiers & 4) !== 0;
+  await cdp.send("Input.dispatchKeyEvent", {
+    type: hasCtrlOrMeta || !desc.text ? "rawKeyDown" : "keyDown",
+    modifiers,
+    key: desc.key,
+    code: desc.code,
+    windowsVirtualKeyCode: desc.keyCode,
+    nativeVirtualKeyCode: desc.keyCode,
+    ...(desc.text && !hasCtrlOrMeta ? { text: desc.text } : {}),
+  });
+  await cdp.send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    modifiers,
+    key: desc.key,
+    code: desc.code,
+    windowsVirtualKeyCode: desc.keyCode,
+    nativeVirtualKeyCode: desc.keyCode,
+  });
+}
+
+/* ---------- commands ---------- */
+async function cmdStart(flags) {
+  const runId = flags.run || process.env.NET_DRAW_RUN;
+  const scratchDir = scratchDirFor(runId);
+  const instPath = path.join(scratchDir, "instance.json");
+  const repoRoot = fs.realpathSync(flags["repo-root"] || DEFAULT_REPO_ROOT);
+  const indexHtml = path.join(repoRoot, "index.html");
+
+  if (!fs.existsSync(indexHtml)) {
+    fail(`index.html not found at ${indexHtml}`);
+  }
+
+  if (fs.existsSync(instPath)) {
+    const prev = JSON.parse(fs.readFileSync(instPath, "utf8"));
+    if (
+      isOwnedPid(prev.httpPid, "_serve") ||
+      isOwnedPid(prev.chromePid, prev.profileDir)
+    ) {
+      fail(`Run '${runId}' is already active. Stop it first with 'stop --run ${runId}' or choose another --run id.`);
+    }
+  }
+
+  const width = Number(flags.width) || 1440;
+  const height = Number(flags.height) || 900;
+  const evidenceDir = path.resolve(flags["evidence-dir"] || defaultEvidenceDirFor(runId));
+  const downloadsDir = path.join(evidenceDir, "downloads");
+  const profileDir = path.join(scratchDir, "chrome-profile");
+  const serverReadyFile = path.join(scratchDir, "server-ready.json");
+  const chromeErrLog = path.join(scratchDir, "chrome-stderr.log");
+
+  fs.rmSync(scratchDir, { recursive: true, force: true });
+  fs.mkdirSync(path.join(profileDir, "Default"), { recursive: true });
+  fs.mkdirSync(downloadsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(profileDir, "Default", "Preferences"),
+    JSON.stringify({
+      download: {
+        default_directory: downloadsDir,
+        prompt_for_download: false,
+        directory_upgrade: true,
+      },
+      savefile: {
+        default_directory: downloadsDir,
+        type: 0,
+      },
+    }),
+    "utf8"
+  );
+
+  // 1. Spawn static HTTP server
+  const reqPort = flags.port ? String(flags.port) : "0";
+  const srvProc = spawn(
+    process.execPath,
+    [REAL_SCRIPT, "_serve", reqPort, repoRoot, serverReadyFile],
+    { detached: true, stdio: "ignore" }
+  );
+  srvProc.unref();
+
+  let srvInfo = null;
+  for (let i = 0; i < 50; i++) {
+    if (fs.existsSync(serverReadyFile)) {
+      srvInfo = JSON.parse(fs.readFileSync(serverReadyFile, "utf8"));
+      break;
+    }
+    await sleep(80);
+  }
+  if (!srvInfo) {
+    try { process.kill(srvProc.pid, "SIGTERM"); } catch {}
+    fail("Static HTTP server failed to report readiness.");
+  }
+
+  const origin = `http://127.0.0.1:${srvInfo.port}`;
+  const url = `${origin}/`;
+
+  // 2. Spawn isolated headless Chrome
+  const chromeBin = findChromeBinary();
+  const errFd = fs.openSync(chromeErrLog, "w");
+  const chromeProc = spawn(
+    chromeBin,
+    [
+      "--headless=new",
+      `--user-data-dir=${profileDir}`,
+      "--remote-debugging-port=0",
+      `--window-size=${width},${height}`,
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-renderer-backgrounding",
+      "--autoplay-policy=no-user-gesture-required",
+      url,
+    ],
+    { detached: true, stdio: ["ignore", "ignore", errFd] }
+  );
+  chromeProc.unref();
+  fs.closeSync(errFd);
+
+  let browserWsUrl = null;
+  let cdpPort = null;
+  for (let i = 0; i < 80; i++) {
+    if (fs.existsSync(chromeErrLog)) {
+      const log = fs.readFileSync(chromeErrLog, "utf8");
+      const m = log.match(/DevTools listening on (ws:\/\/127\.0\.0\.1:(\d+)\/devtools\/browser\/[^\s]+)/);
+      if (m) {
+        browserWsUrl = m[1];
+        cdpPort = Number(m[2]);
+        break;
+      }
+    }
+    await sleep(100);
+  }
+
+  if (!browserWsUrl || !cdpPort) {
+    await terminateOwnedPid(chromeProc.pid, profileDir);
+    await terminateOwnedPid(srvInfo.pid, "_serve");
+    fail("Headless Chrome did not expose a DevTools WebSocket endpoint.");
+  }
+
+  const inst = {
+    runId,
+    repoRoot,
+    indexSha256: sha256File(indexHtml),
+    gitHead: getGitHead(repoRoot),
+    origin,
+    url,
+    httpPort: srvInfo.port,
+    httpPid: srvInfo.pid,
+    chromeBin,
+    chromePid: chromeProc.pid,
+    cdpPort,
+    browserWsUrl,
+    scratchDir,
+    profileDir,
+    evidenceDir,
+    downloadsDir,
+    viewport: { width, height },
+    startedAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(instPath, JSON.stringify(inst, null, 2), "utf8");
+
+  // 3. Wait for NetDraw boot() + sampleState() + zoomFit() to render cleanly
+  let readyState = null;
+  for (let i = 0; i < 60; i++) {
+    try {
+      readyState = await withPage(inst, async (cdp) => {
+        return await cdp.evalValue(`(() => {
+          const svg = document.getElementById("canvas");
+          const r = svg ? svg.getBoundingClientRect() : { width: 0, height: 0 };
+          return {
+            ready: document.readyState === "complete" &&
+                   document.title === "NetDraw — Network Diagrams" &&
+                   document.querySelectorAll("#palette .pitem").length > 50 &&
+                   document.querySelectorAll("#nodesLayer g.nodeg").length > 0 &&
+                   r.width > 200,
+            title: document.title,
+            nodes: document.querySelectorAll("#nodesLayer g.nodeg").length,
+            edges: document.querySelectorAll("#edgesLayer g.edge").length,
+            zones: document.querySelectorAll("#zonesLayer g.zoneg").length,
+            paletteItems: document.querySelectorAll("#palette .pitem").length,
+            zoomPct: (document.getElementById("zoomPct") || {}).textContent || "",
+          };
+        })()`);
+      });
+      if (readyState && readyState.ready) break;
+    } catch {}
+    await sleep(120);
+  }
+
+  if (!readyState || !readyState.ready) {
+    fail("NetDraw failed to reach usable baseline state.", { readyState });
+  }
+
+  const attachResp = await fetch(`${origin}/__netdraw_verify_attach_cdp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      browserWsUrl,
+      cdpPort,
+      origin,
+      downloadsDir,
+      width,
+      height,
+    }),
+  });
+  if (!attachResp.ok) {
+    fail("Failed to attach persistent CDP download/viewport session.");
+  }
+
+  ok({
+    runId,
+    url,
+    httpPort: inst.httpPort,
+    httpPid: inst.httpPid,
+    chromePid: inst.chromePid,
+    scratchDir,
+    evidenceDir,
+    downloadsDir,
+    viewport: inst.viewport,
+    gitHead: inst.gitHead,
+    baseline: {
+      title: readyState.title,
+      nodes: readyState.nodes,
+      edges: readyState.edges,
+      zones: readyState.zones,
+      paletteItems: readyState.paletteItems,
+      zoomPct: readyState.zoomPct,
+    },
+  });
+}
+
+async function cmdDoctor(flags) {
+  const runId = flags.run || process.env.NET_DRAW_RUN;
+  const inst = loadInstance(runId);
+  const checks = {};
+
+  checks.httpProcessOwned = isOwnedPid(inst.httpPid, "_serve");
+  checks.chromeProcessOwned = isOwnedPid(inst.chromePid, inst.profileDir);
+
+  let healthJson = null;
+  try {
+    const r = await fetch(`${inst.origin}/__netdraw_verify_health`);
+    healthJson = r.ok ? await r.json() : null;
+  } catch {}
+  checks.httpHealthOwnerMatch = Boolean(
+    healthJson && healthJson.ok && healthJson.pid === inst.httpPid && healthJson.repoRoot === inst.repoRoot
+  );
+
+  let servedSha = null;
+  try {
+    const r = await fetch(inst.url);
+    if (r.ok) {
+      const buf = Buffer.from(await r.arrayBuffer());
+      servedSha = sha256Buffer(buf);
+    }
+  } catch {}
+  const diskSha = sha256File(path.join(inst.repoRoot, "index.html"));
+  checks.servedMatchesDisk = servedSha !== null && servedSha === diskSha;
+
+  let examplesReachable = false;
+  try {
+    const r = await fetch(`${inst.origin}/examples/stuxnet-journey.json`);
+    if (r.ok) {
+      const ex = await r.json();
+      examplesReachable = Array.isArray(ex.nodes) && Array.isArray(ex.edges);
+    }
+  } catch {}
+  checks.examplesServed = examplesReachable;
+
+  let pageInfo = null;
+  try {
+    pageInfo = await Promise.race([
+      withPage(inst, (cdp) =>
+        cdp.evalValue(`(() => ({
+          href: location.href,
+          title: document.title,
+          nodes: document.querySelectorAll("#nodesLayer g.nodeg").length,
+          edges: document.querySelectorAll("#edgesLayer g.edge").length,
+          zones: document.querySelectorAll("#zonesLayer g.zoneg").length,
+          paletteItems: document.querySelectorAll("#palette .pitem").length,
+          presenting: document.body.classList.contains("presenting"),
+          zoomPct: (document.getElementById("zoomPct") || {}).textContent || "",
+        }))()`)
+      ),
+      sleep(4000).then(() => ({ timedOut: true })),
+    ]);
+  } catch (err) {
+    pageInfo = { error: err.message };
+  }
+
+  checks.browserResponsive = Boolean(
+    pageInfo &&
+      !pageInfo.timedOut &&
+      !pageInfo.error &&
+      pageInfo.href.startsWith(inst.origin) &&
+      pageInfo.title === "NetDraw — Network Diagrams" &&
+      pageInfo.paletteItems > 50
+  );
+
+  const healthy = Object.values(checks).every(Boolean);
+  if (!healthy) {
+    fail("Doctor check failed.", { runId, url: inst.url, checks, pageInfo });
+  }
+
+  ok({
+    runId,
+    healthy: true,
+    url: inst.url,
+    httpPid: inst.httpPid,
+    chromePid: inst.chromePid,
+    gitHead: getGitHead(inst.repoRoot),
+    evidenceDir: inst.evidenceDir,
+    checks,
+    page: pageInfo,
+  });
+}
+
+async function cmdClick(flags) {
+  const inst = loadInstance(flags.run || process.env.NET_DRAW_RUN);
+  const dbl = Boolean(flags.double);
+  const modifiers = flags.shift ? 8 : 0;
+  const dialogPolicy = flags.dialog || null; // "accept" | "dismiss" | null
+
+  const result = await withPage(inst, async (cdp) => {
+    const pt = await resolveTargetPoint(cdp, flags);
+    let capturedDialog = null;
+
+    if (dialogPolicy) {
+      await cdp.send("Page.enable");
+      cdp.on("Page.javascriptDialogOpening", (params) => {
+        capturedDialog = {
+          type: params.type,
+          message: params.message,
+          accepted: dialogPolicy === "accept",
+        };
+        cdp.send("Page.handleJavaScriptDialog", {
+          accept: dialogPolicy === "accept",
+        }).catch(() => {});
+      });
+    }
+
+    await cdp.send("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: pt.x,
+      y: pt.y,
+      modifiers,
+    });
+    await cdp.send("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x: pt.x,
+      y: pt.y,
+      button: "left",
+      buttons: 1,
+      clickCount: 1,
+      modifiers,
+    });
+    await cdp.send("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x: pt.x,
+      y: pt.y,
+      button: "left",
+      buttons: 0,
+      clickCount: 1,
+      modifiers,
+    });
+
+    if (dbl) {
+      await sleep(45);
+      await cdp.send("Input.dispatchMouseEvent", {
+        type: "mousePressed",
+        x: pt.x,
+        y: pt.y,
+        button: "left",
+        buttons: 1,
+        clickCount: 2,
+        modifiers,
+      });
+      await cdp.send("Input.dispatchMouseEvent", {
+        type: "mouseReleased",
+        x: pt.x,
+        y: pt.y,
+        button: "left",
+        buttons: 0,
+        clickCount: 2,
+        modifiers,
+      });
+    }
+
+    await sleep(80);
+    return { target: pt, double: dbl, dialog: capturedDialog };
+  });
+
+  ok(result);
+}
+
+async function cmdDrag(flags) {
+  const inst = loadInstance(flags.run || process.env.NET_DRAW_RUN);
+  const shift = flags.shift ? 8 : 0;
+
+  const result = await withPage(inst, async (cdp) => {
+    const canvasRect = await cdp.evalValue(`(() => {
+      const r = document.getElementById("canvas").getBoundingClientRect();
+      return { left: r.left, top: r.top, width: r.width, height: r.height };
+    })()`);
+
+    function parseCanvasPair(str, label) {
+      const parts = String(str).split(",").map(Number);
+      if (parts.length !== 2 || parts.some((n) => !Number.isFinite(n))) {
+        fail(`Invalid ${label} '${str}'. Expected 'x,y' canvas pixel offsets.`);
+      }
+      return { x: canvasRect.left + parts[0], y: canvasRect.top + parts[1] };
+    }
+
+    let fromPt, toPt;
+    if (flags["from-canvas"]) {
+      fromPt = parseCanvasPair(flags["from-canvas"], "--from-canvas");
+    } else if (flags["from-selector"]) {
+      fromPt = await resolveTargetPoint(cdp, { selector: flags["from-selector"] });
+    } else {
+      fail("Provide --from-selector <css> or --from-canvas <x,y>.");
+    }
+
+    if (flags["to-canvas"]) {
+      toPt = parseCanvasPair(flags["to-canvas"], "--to-canvas");
+    } else if (flags["to-selector"]) {
+      toPt = await resolveTargetPoint(cdp, { selector: flags["to-selector"] });
+    } else {
+      fail("Provide --to-selector <css> or --to-canvas <x,y>.");
+    }
+
+    await cdp.send("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: fromPt.x,
+      y: fromPt.y,
+      modifiers: shift,
+    });
+    await cdp.send("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x: fromPt.x,
+      y: fromPt.y,
+      button: "left",
+      buttons: 1,
+      clickCount: 1,
+      modifiers: shift,
+    });
+
+    const steps = 10;
+    for (let i = 1; i <= steps; i++) {
+      const u = i / steps;
+      await cdp.send("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x: Math.round((fromPt.x + (toPt.x - fromPt.x) * u) * 10) / 10,
+        y: Math.round((toPt.y + (toPt.y - fromPt.y) * u) * 10) / 10,
+        button: "left",
+        buttons: 1,
+        modifiers: shift,
+      });
+      await sleep(12);
+    }
+
+    await cdp.send("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x: toPt.x,
+      y: toPt.y,
+      button: "left",
+      buttons: 0,
+      clickCount: 1,
+      modifiers: shift,
+    });
+    await sleep(80);
+    return { from: { x: fromPt.x, y: fromPt.y }, to: { x: toPt.x, y: toPt.y } };
+  });
+
+  ok(result);
+}
+
+async function cmdFill(flags) {
+  const inst = loadInstance(flags.run || process.env.NET_DRAW_RUN);
+  if (flags.value === undefined) fail("Missing --value <text>.");
+  const value = String(flags.value === true ? "" : flags.value);
+
+  const result = await withPage(inst, async (cdp) => {
+    const pt = await resolveTargetPoint(cdp, flags);
+    await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: pt.x, y: pt.y, button: "left", buttons: 1, clickCount: 1 });
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: pt.x, y: pt.y, button: "left", buttons: 0, clickCount: 1 });
+    await sleep(30);
+
+    const tag = await cdp.evalValue(`(() => {
+      const a = document.activeElement;
+      if (a && typeof a.select === "function") a.select();
+      return a ? a.tagName.toLowerCase() : "";
+    })()`);
+
+    await dispatchKey(cdp, "Backspace");
+    if (value.length > 0) {
+      await cdp.send("Input.insertText", { text: value });
+    }
+
+    const commitMode = flags.commit || (tag === "textarea" ? "blur" : "enter");
+    if (commitMode === "enter") {
+      await dispatchKey(cdp, "Enter");
+    } else if (commitMode === "blur") {
+      await cdp.evalValue(`(() => { if (document.activeElement) document.activeElement.blur(); })()`);
+    }
+    await sleep(80);
+    return { target: pt, value, commit: commitMode };
+  });
+
+  ok(result);
+}
+
+async function cmdSelect(flags) {
+  const inst = loadInstance(flags.run || process.env.NET_DRAW_RUN);
+  if (!flags.selector || flags.value === undefined) {
+    fail("Provide --selector <css> and --value <optionValue>.");
+  }
+  const value = String(flags.value === true ? "" : flags.value);
+
+  const res = await withPage(inst, (cdp) =>
+    cdp.evalValue(`(() => {
+      const sel = document.querySelector(${JSON.stringify(flags.selector)});
+      if (!sel || sel.tagName !== "SELECT") return { ok: false, reason: "select-not-found" };
+      const has = Array.from(sel.options).some((o) => o.value === ${JSON.stringify(value)});
+      if (!has) return { ok: false, reason: "option-not-found", options: Array.from(sel.options).map((o) => o.value) };
+      sel.value = ${JSON.stringify(value)};
+      sel.dispatchEvent(new Event("input", { bubbles: true }));
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+      return { ok: true, value: sel.value };
+    })()`)
+  );
+
+  if (!res || !res.ok) fail("Select failed.", res || {});
+  ok({ selector: flags.selector, value: res.value });
+}
+
+async function cmdPress(flags) {
+  const inst = loadInstance(flags.run || process.env.NET_DRAW_RUN);
+  if (!flags.key) fail("Missing --key <key>.");
+  let modifiers = 0;
+  if (flags.alt) modifiers |= 1;
+  if (flags.ctrl) modifiers |= 2;
+  if (flags.meta) modifiers |= 4;
+  if (flags.shift) modifiers |= 8;
+
+  await withPage(inst, async (cdp) => {
+    await dispatchKey(cdp, String(flags.key), modifiers);
+    await sleep(80);
+  });
+
+  ok({ key: String(flags.key), ctrl: Boolean(flags.ctrl), shift: Boolean(flags.shift) });
+}
+
+async function cmdUpload(flags) {
+  const inst = loadInstance(flags.run || process.env.NET_DRAW_RUN);
+  const selector = flags.selector || "#fileInput";
+  const filePath = flags.file ? path.resolve(String(flags.file)) : null;
+  if (!filePath || !fs.existsSync(filePath)) {
+    fail(`File to upload does not exist: ${filePath}`);
+  }
+
+  await withPage(inst, async (cdp) => {
+    const doc = await cdp.send("DOM.getDocument", { depth: 1 });
+    const q = await cdp.send("DOM.querySelector", {
+      nodeId: doc.root.nodeId,
+      selector,
+    });
+    if (!q.nodeId) fail(`File input not found for selector: ${selector}`);
+    await cdp.send("DOM.setFileInputFiles", {
+      nodeId: q.nodeId,
+      files: [filePath],
+    });
+    await sleep(200);
+  });
+
+  ok({ selector, uploaded: filePath });
+}
+
+async function cmdWaitDownload(flags) {
+  const inst = loadInstance(flags.run || process.env.NET_DRAW_RUN);
+  const match = flags.match ? String(flags.match) : "";
+  const timeoutMs = Number(flags["timeout-ms"]) || 15000;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const entries = fs.existsSync(inst.downloadsDir) ? fs.readdirSync(inst.downloadsDir) : [];
+    const inFlight = entries.some((f) => f.endsWith(".crdownload"));
+    const completed = entries
+      .filter((f) => !f.endsWith(".crdownload") && (!match || f.includes(match)))
+      .map((f) => {
+        const p = path.join(inst.downloadsDir, f);
+        const st = fs.statSync(p);
+        return { name: f, path: p, bytes: st.size, mtimeMs: st.mtimeMs };
+      })
+      .filter((x) => x.bytes > 0)
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+    if (!inFlight && completed.length > 0) {
+      const latest = completed[0];
+      ok({
+        file: latest.name,
+        path: latest.path,
+        bytes: latest.bytes,
+        sha256: sha256File(latest.path),
+      });
+      return;
+    }
+    await sleep(120);
+  }
+
+  fail(`Timed out after ${timeoutMs}ms waiting for download matching '${match || "*"}' in ${inst.downloadsDir}.`);
+}
+
+async function cmdReload(flags) {
+  const inst = loadInstance(flags.run || process.env.NET_DRAW_RUN);
+  const waitSaveMs = flags["wait-save-ms"] !== undefined ? Number(flags["wait-save-ms"]) : 450;
+  if (waitSaveMs > 0) await sleep(waitSaveMs);
+
+  await withPage(inst, async (cdp) => {
+    await cdp.send("Page.enable");
+    const loaded = new Promise((resolve) => cdp.on("Page.loadEventFired", resolve));
+    await cdp.send("Page.reload", { ignoreCache: true });
+    await Promise.race([loaded, sleep(5000)]);
+    await sleep(150);
+  });
+
+  ok({ reloaded: true, url: inst.url });
+}
+
+async function cmdResize(flags) {
+  const inst = loadInstance(flags.run || process.env.NET_DRAW_RUN);
+  const width = Number(flags.width);
+  const height = Number(flags.height);
+  if (!width || !height) fail("Provide --width <px> and --height <px>.");
+
+  await fetch(`${inst.origin}/__netdraw_verify_resize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ width, height }),
+  });
+
+  await withPage(inst, async (cdp) => {
+    await cdp.evalValue(`window.dispatchEvent(new Event("resize"))`);
+    await sleep(80);
+  });
+
+  ok({ viewport: { width, height } });
+}
+
+async function cmdState(flags) {
+  const inst = loadInstance(flags.run || process.env.NET_DRAW_RUN);
+  const snapshot = await withPage(inst, (cdp) =>
+    cdp.evalValue(`(() => {
+      const vis = (id) => {
+        const el = document.getElementById(id);
+        if (!el) return false;
+        const st = getComputedStyle(el);
+        return st.display !== "none" && st.visibility !== "hidden";
+      };
+
+      const nodes = Array.from(document.querySelectorAll("#nodesLayer g.nodeg")).map((g) => {
+        const texts = Array.from(g.querySelectorAll(":scope > text")).map((t) => t.textContent);
+        const disp = g.querySelector(".disptag text");
+        const badges = Array.from(g.querySelectorAll(".fxbadge title")).map((t) => t.textContent);
+        return {
+          id: g.getAttribute("data-node"),
+          label: texts[0] || "",
+          meta: texts.slice(1),
+          disposition: disp ? disp.textContent : null,
+          effects: badges,
+          hasHalo: Boolean(g.querySelector(".fxhalo")),
+          dimmed: g.getAttribute("opacity") === ".13",
+        };
+      });
+
+      const edges = Array.from(document.querySelectorAll("#edgesLayer g.edge")).map((g) => {
+        const pathEl = g.querySelector("path.vis");
+        const txt = g.querySelector("text");
+        return {
+          id: g.getAttribute("data-edge"),
+          label: txt ? txt.textContent : "",
+          selected: g.classList.contains("sel"),
+          animated: Boolean(pathEl && pathEl.classList.contains("anim")),
+          dasharray: pathEl ? pathEl.getAttribute("stroke-dasharray") || "" : "",
+          markerStart: Boolean(pathEl && pathEl.getAttribute("marker-start")),
+          markerEnd: Boolean(pathEl && pathEl.getAttribute("marker-end")),
+          sneakernetFootsteps: g.querySelectorAll(".footsteps").length,
+          dimmed: g.getAttribute("opacity") === ".13",
+        };
+      });
+
+      const zones = Array.from(document.querySelectorAll("#zonesLayer g.zoneg")).map((g) => {
+        const texts = Array.from(g.querySelectorAll("text")).map((t) => t.textContent);
+        return {
+          id: g.getAttribute("data-zone"),
+          label: texts[0] || "",
+          lanes: texts.slice(1),
+          selected: g.querySelectorAll(".zhandle").length === 4,
+          dimmed: g.getAttribute("opacity") === ".13",
+        };
+      });
+
+      const activeToolBtn = document.querySelector("#toolSelect.active, #toolConnect.active, #toolZone.active, #toolLane.active, #toolPan.active");
+      let savedSummary = null;
+      try {
+        const raw = localStorage.getItem("netdraw.doc.v1");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const st = parsed.state || {};
+          savedSummary = {
+            nodes: Array.isArray(st.nodes) ? st.nodes.length : 0,
+            edges: Array.isArray(st.edges) ? st.edges.length : 0,
+            zones: Array.isArray(st.zones) ? st.zones.length : 0,
+            journeySteps: st.journey && Array.isArray(st.journey.steps) ? st.journey.steps.length : 0,
+            nodeLabels: Array.isArray(st.nodes) ? st.nodes.map((n) => n.label) : [],
+          };
+        }
+      } catch {}
+
+      const rootSt = getComputedStyle(document.documentElement);
+      let savedTheme = null;
+      try { savedTheme = localStorage.getItem("netdraw.theme.v1"); } catch {}
+
+      return {
+        title: document.title,
+        theme: document.documentElement.dataset.theme || null,
+        themeLabel: (document.getElementById("themeLbl") || {}).textContent || null,
+        savedTheme,
+        themeTokens: {
+          bg: rootSt.getPropertyValue("--bg").trim(),
+          panel: rootSt.getPropertyValue("--panel").trim(),
+          text: rootSt.getPropertyValue("--text").trim(),
+          accent: rootSt.getPropertyValue("--accent").trim(),
+          ctaBg: rootSt.getPropertyValue("--cta-bg").trim(),
+          gridDot: (document.getElementById("gridDot") || {}).getAttribute?.("fill") || null,
+          cardStop0: (document.getElementById("cardStop0") || {}).getAttribute?.("stop-color") || null,
+        },
+        activeTool: activeToolBtn ? activeToolBtn.id : null,
+        undoDisabled: document.getElementById("btnUndo").disabled,
+        redoDisabled: document.getElementById("btnRedo").disabled,
+        zoomPct: document.getElementById("zoomPct").textContent,
+        gridActive: document.getElementById("btnGrid").classList.contains("active"),
+        snapActive: document.getElementById("btnSnap").classList.contains("active"),
+        presenting: document.body.classList.contains("presenting"),
+        recordingActive: document.getElementById("btnRec").classList.contains("recon"),
+        recButtonText: document.getElementById("btnRec").innerText.trim(),
+        toast: vis("toast") ? document.getElementById("toast").textContent : null,
+        counts: { nodes: nodes.length, edges: edges.length, zones: zones.length },
+        nodes,
+        edges,
+        zones,
+        propsPanel: vis("props")
+          ? {
+              open: true,
+              heading: (document.querySelector("#props h4") || {}).textContent || "",
+              labelValue: (document.getElementById("pLabel") || {}).value ?? null,
+            }
+          : { open: false },
+        labelEditor: vis("labelEditor")
+          ? { open: true, value: document.getElementById("labelEditor").value }
+          : { open: false },
+        examplesMenu: vis("examplesMenu")
+          ? {
+              open: true,
+              loadedFile: (document.querySelector("#examplesMenu .exitem.cur") || {}).dataset?.file || null,
+              itemCount: document.querySelectorAll("#examplesMenu .exitem").length,
+            }
+          : { open: false },
+        themeMenu: vis("themeMenu")
+          ? {
+              open: true,
+              activeTheme: (document.querySelector("#themeMenu .thitem.cur") || {}).dataset?.theme || null,
+              items: Array.from(document.querySelectorAll("#themeMenu .thitem")).map((b) => b.dataset.theme),
+            }
+          : { open: false },
+        journeyModal: vis("journey")
+          ? {
+              open: true,
+              stepCount: document.querySelectorAll("#journey .jstep").length,
+              steps: Array.from(document.querySelectorAll("#journey .jstep")).map((s) => ({
+                caption: (s.querySelector(".jnote") || {}).value || "",
+                chips: Array.from(s.querySelectorAll(".jchip")).map((c) => c.textContent),
+                focusCamera: Boolean((s.querySelector(".jfoc") || {}).checked),
+              })),
+            }
+          : { open: false },
+        pickBar: vis("pickBar")
+          ? { open: true, message: document.getElementById("pickMsg").textContent }
+          : { open: false },
+        presentBar: vis("presentBar")
+          ? {
+              open: true,
+              counter: document.getElementById("pjCounter").textContent,
+              caption: document.getElementById("pjCaption").textContent,
+              prevDisabled: document.getElementById("pjPrev").disabled,
+              nextDisabled: document.getElementById("pjNext").disabled,
+            }
+          : { open: false },
+        exportModal: vis("expModal")
+          ? {
+              open: true,
+              title: document.getElementById("expTitle").textContent,
+              output: document.getElementById("expOut").textContent,
+              invalid: document.getElementById("expOut").classList.contains("bad"),
+              exportDisabled: document.getElementById("expGo").disabled,
+            }
+          : { open: false },
+        recordModal: { open: vis("recModal") },
+        localStorage: savedSummary,
+      };
+    })()`)
+  );
+
+  let savedTo = null;
+  if (flags.out) {
+    savedTo = resolveOutPath(inst, String(flags.out));
+    fs.writeFileSync(savedTo, JSON.stringify(snapshot, null, 2), "utf8");
+  }
+
+  ok({ ...(savedTo ? { path: savedTo } : {}), state: snapshot });
+}
+
+async function cmdSnapshotAria(flags) {
+  const inst = loadInstance(flags.run || process.env.NET_DRAW_RUN);
+  const outFile = resolveOutPath(inst, flags.out);
+
+  const treeText = await withPage(inst, async (cdp) => {
+    const { nodes } = await cdp.send("Accessibility.getFullAXTree");
+    const byId = new Map(nodes.map((n) => [n.nodeId, n]));
+    const roots = nodes.filter((n) => !n.parentId || !byId.has(n.parentId));
+    const lines = [];
+
+    function render(nodeId, depth) {
+      const n = byId.get(nodeId);
+      if (!n) return;
+      const role = n.role?.value || "";
+      const name = n.name?.value || "";
+      const val = n.value?.value || "";
+      const ignored = Boolean(n.ignored);
+      const skipRole = ignored || role === "none" || role === "generic" || role === "InlineTextBox";
+      const nextDepth = skipRole && !name ? depth : depth + 1;
+      if (!skipRole || name) {
+        const pad = "  ".repeat(depth);
+        const namePart = name ? ` ${JSON.stringify(name)}` : "";
+        const valPart = val ? ` value=${JSON.stringify(val)}` : "";
+        lines.push(`${pad}- ${role}${namePart}${valPart}`);
+      }
+      for (const childId of n.childIds || []) {
+        render(childId, nextDepth);
+      }
+    }
+
+    for (const r of roots) render(r.nodeId, 0);
+    return lines.join(NL) + NL;
+  });
+
+  fs.writeFileSync(outFile, treeText, "utf8");
+  ok({ path: outFile, lines: treeText.split(NL).length - 1, bytes: Buffer.byteLength(treeText) });
+}
+
+async function cmdScreenshot(flags) {
+  const inst = loadInstance(flags.run || process.env.NET_DRAW_RUN);
+  const outFile = resolveOutPath(inst, flags.out);
+
+  const b64 = await withPage(inst, async (cdp) => {
+    const res = await cdp.send("Page.captureScreenshot", { format: "png" });
+    return res.data;
+  });
+
+  const buf = Buffer.from(b64, "base64");
+  fs.writeFileSync(outFile, buf);
+  ok({ path: outFile, bytes: buf.length, sha256: sha256Buffer(buf) });
+}
+
+async function cmdStop(flags) {
+  const runId = flags.run || process.env.NET_DRAW_RUN;
+  const scratchDir = scratchDirFor(runId);
+  const instPath = path.join(scratchDir, "instance.json");
+
+  if (!fs.existsSync(instPath)) {
+    const evDir = defaultEvidenceDirFor(runId);
+    ok({
+      runId,
+      alreadyStopped: true,
+      evidenceDir: fs.existsSync(evDir) ? evDir : null,
+    });
+    return;
+  }
+
+  const inst = JSON.parse(fs.readFileSync(instPath, "utf8"));
+  const chromeRes = await terminateOwnedPid(inst.chromePid, inst.profileDir);
+  const httpRes = await terminateOwnedPid(inst.httpPid, "_serve");
+
+  fs.rmSync(scratchDir, { recursive: true, force: true });
+
+  const preserved = [];
+  function walk(dir) {
+    if (!fs.existsSync(dir)) return;
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) walk(full);
+      else preserved.push(full);
+    }
+  }
+  walk(inst.evidenceDir);
+
+  ok({
+    runId,
+    stopped: { chrome: chromeRes, http: httpRes },
+    removedScratchDir: scratchDir,
+    evidenceDir: inst.evidenceDir,
+    evidenceDirExists: fs.existsSync(inst.evidenceDir),
+    preservedArtifacts: preserved,
+  });
+}
+
+async function cmdValidateExamples(flags) {
+  const repoRoot = fs.realpathSync(flags["repo-root"] || DEFAULT_REPO_ROOT);
+  const indexHtml = fs.readFileSync(path.join(repoRoot, "index.html"), "utf8");
+  const examplesDir = path.join(repoRoot, "examples");
+  const listed = [...indexHtml.matchAll(/file:\s*"([^"]+\.json)"/g)].map((m) => m[1]);
+  const diskFiles = fs.readdirSync(examplesDir).filter((f) => f.endsWith(".json")).sort();
+  const issues = [];
+
+  for (const f of listed) {
+    if (!diskFiles.includes(f)) issues.push(`${f}: listed in EXAMPLES menu but missing in examples/`);
+  }
+  for (const f of diskFiles) {
+    if (!listed.includes(f)) issues.push(`${f}: present in examples/ but missing from EXAMPLES menu`);
+    let doc;
+    try {
+      doc = JSON.parse(fs.readFileSync(path.join(examplesDir, f), "utf8"));
+    } catch (err) {
+      issues.push(`${f}: invalid JSON (${err.message})`);
+      continue;
+    }
+    const nodeIds = new Set((doc.nodes || []).map((n) => n.id));
+    const allIds = new Set([
+      ...nodeIds,
+      ...(doc.edges || []).map((e) => e.id),
+      ...(doc.zones || []).map((z) => z.id),
+    ]);
+    for (const e of doc.edges || []) {
+      if (!nodeIds.has(e.a) || !nodeIds.has(e.b)) {
+        issues.push(`${f}: edge '${e.id}' references missing endpoint (${e.a} -> ${e.b})`);
+      }
+    }
+    const steps = (doc.journey && Array.isArray(doc.journey.steps)) ? doc.journey.steps : [];
+    steps.forEach((step, idx) => {
+      for (const ref of [...(step.show || []), ...(step.hi || [])]) {
+        if (!allIds.has(ref)) {
+          issues.push(`${f}: journey step ${idx + 1} references missing id '${ref}'`);
+        }
+      }
+    });
+  }
+
+  if (issues.length > 0) {
+    fail("Example diagram validation failed.", { checked: diskFiles.length, issues });
+  }
+
+  ok({ checked: diskFiles.length, menuEntries: listed.length, valid: true });
+}
+
+function printHelp() {
+  process.stdout.write(`Usage: control-net-draw <command> --run <id> [options]
+
+Lifecycle & health:
+  start              --run <id> [--port <n>] [--width 1440] [--height 900] [--evidence-dir <dir>]
+  doctor             --run <id>
+  stop               --run <id>
+  validate-examples  [--repo-root <dir>]
+
+User actions (all dispatch real browser events via CDP):
+  click          --run <id> (--selector <css> | --role <r> --name <n>) [--nth <i>] [--double] [--shift] [--dialog accept|dismiss]
+  drag           --run <id> (--from-selector <css> | --from-canvas x,y) (--to-selector <css> | --to-canvas x,y) [--shift]
+  fill           --run <id> (--selector <css> | --role <r> --name <n>) --value <text> [--commit enter|blur|none]
+  select         --run <id> --selector <css> --value <optionValue>
+  press          --run <id> --key <key> [--ctrl] [--shift] [--alt] [--meta]
+  upload         --run <id> [--selector #fileInput] --file <absPath>
+  wait-download  --run <id> [--match <substr>] [--timeout-ms 15000]
+  reload         --run <id> [--wait-save-ms 450]
+  resize         --run <id> --width <px> --height <px>
+
+Observation & proof capture (read-only; relative --out resolves inside evidenceDir):
+  state          --run <id> [--out <file.json>]
+  snapshot-aria  --run <id> --out <file.aria.txt>
+  screenshot     --run <id> --out <file.png>
+`);
+}
+
+async function main() {
+  const { positional, flags } = parseArgs(process.argv.slice(2));
+  const cmd = positional[0];
+
+  if (!cmd || cmd === "help" || flags.help) {
+    printHelp();
+    return;
+  }
+
+  switch (cmd) {
+    case "_serve":
+      await runStaticServer(positional[1], positional[2], positional[3]);
+      break;
+    case "start":
+      await cmdStart(flags);
+      break;
+    case "doctor":
+      await cmdDoctor(flags);
+      break;
+    case "click":
+      await cmdClick(flags);
+      break;
+    case "drag":
+      await cmdDrag(flags);
+      break;
+    case "fill":
+      await cmdFill(flags);
+      break;
+    case "select":
+      await cmdSelect(flags);
+      break;
+    case "press":
+      await cmdPress(flags);
+      break;
+    case "upload":
+      await cmdUpload(flags);
+      break;
+    case "wait-download":
+      await cmdWaitDownload(flags);
+      break;
+    case "reload":
+      await cmdReload(flags);
+      break;
+    case "resize":
+      await cmdResize(flags);
+      break;
+    case "state":
+      await cmdState(flags);
+      break;
+    case "snapshot-aria":
+      await cmdSnapshotAria(flags);
+      break;
+    case "screenshot":
+      await cmdScreenshot(flags);
+      break;
+    case "stop":
+      await cmdStop(flags);
+      break;
+    case "validate-examples":
+      await cmdValidateExamples(flags);
+      break;
+    default:
+      fail(`Unknown command '${cmd}'. Run with --help for usage.`);
+  }
+}
+
+main().catch((err) => fail(err.message || String(err)));
