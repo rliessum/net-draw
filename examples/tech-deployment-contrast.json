@@ -1,0 +1,55 @@
+{
+  "zones": [
+    {
+      "id": "sl1",
+      "x": 50, "y": 40, "w": 1870, "h": 486,
+      "label": "New Technology Deployment — Reality vs Good Practice",
+      "color": "#f59e0b",
+      "kind": "swimlane",
+      "orient": "h",
+      "lanes": ["Most organisations", "Good practice"]
+    }
+  ],
+  "nodes": [
+    {"id": "b1", "type": "startend", "x": 180,  "y": 181, "label": "Shiny tech spotted", "accent": "#f87171"},
+    {"id": "b2", "type": "process",  "x": 410,  "y": 181, "label": "Exec demo & hype", "accent": "#f87171", "notes": "Decision made on the golf course; requirements = the brochure."},
+    {"id": "b3", "type": "process",  "x": 630,  "y": 181, "label": "Rush purchase", "accent": "#f87171", "notes": "Bought before IT knew it existed; renewal auto-signed."},
+    {"id": "b4", "type": "decision", "x": 850,  "y": 181, "label": "Security review?", "accent": "#f87171", "notes": "'We'll do it after go-live' — never happens."},
+    {"id": "b5", "type": "process",  "x": 1090, "y": 181, "label": "Straight to prod", "accent": "#f87171", "notes": "Default admin creds, everything exposed, no logging."},
+    {"id": "b6", "type": "decision", "x": 1310, "y": 181, "label": "Works?", "accent": "#f87171"},
+    {"id": "b7", "type": "process",  "x": 1530, "y": 181, "label": "Declare success", "accent": "#f87171", "notes": "Team disbanded. No owner, no runbook, no patching."},
+    {"id": "b8", "type": "startend", "x": 1760, "y": 181, "label": "Forgotten till audit", "accent": "#f87171", "disp": "victim", "effects": ["vulnerable", "breach"], "notes": "Rediscovered during the audit — or the breach."},
+
+    {"id": "g1",  "type": "startend", "x": 180,  "y": 356, "label": "Business need"},
+    {"id": "g2",  "type": "process",  "x": 400,  "y": 356, "label": "Requirements", "notes": "Stakeholders, success criteria, data classification."},
+    {"id": "g3",  "type": "process",  "x": 620,  "y": 356, "label": "Evaluate & PoC", "notes": "Proof of concept in a test environment with exit criteria."},
+    {"id": "g4",  "type": "process",  "x": 850,  "y": 356, "label": "Security review", "notes": "Risk assessment, DPIA, architecture review — security by design."},
+    {"id": "g5",  "type": "decision", "x": 1090, "y": 356, "label": "Risk OK?"},
+    {"id": "g6",  "type": "process",  "x": 1310, "y": 356, "label": "Pilot & measure", "notes": "Limited pilot, measured against the success criteria."},
+    {"id": "g7",  "type": "process",  "x": 1540, "y": 356, "label": "Harden & integrate", "notes": "SSO, logs to SIEM, patch pipeline, backups."},
+    {"id": "g8",  "type": "process",  "x": 1540, "y": 466, "label": "Managed rollout", "notes": "Change management, comms, assigned owner + runbook, user training."},
+    {"id": "g9",  "type": "process",  "x": 1290, "y": 466, "label": "Operate & review", "notes": "Patch cadence, access reviews, monitoring, decommission plan."},
+    {"id": "g10", "type": "startend", "x": 1060, "y": 466, "label": "Managed asset", "disp": "friendly"}
+  ],
+  "edges": [
+    {"id": "eb1", "a": "b1", "b": "b2", "label": "",        "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eb2", "a": "b2", "b": "b3", "label": "",        "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eb3", "a": "b3", "b": "b4", "label": "",        "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eb4", "a": "b4", "b": "b5", "label": "“later”", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eb5", "a": "b5", "b": "b6", "label": "",        "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eb6", "a": "b6", "b": "b5", "label": "hotfix & pray", "style": "dashed", "anim": false, "arrows": "end"},
+    {"id": "eb7", "a": "b6", "b": "b7", "label": "yes",     "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eb8", "a": "b7", "b": "b8", "label": "",        "style": "solid", "anim": false, "arrows": "end"},
+
+    {"id": "eg1", "a": "g1", "b": "g2",  "label": "",          "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eg2", "a": "g2", "b": "g3",  "label": "",          "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eg3", "a": "g3", "b": "g4",  "label": "",          "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eg4", "a": "g4", "b": "g5",  "label": "",          "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eg5", "a": "g5", "b": "g4",  "label": "remediate", "style": "dashed", "anim": false, "arrows": "end"},
+    {"id": "eg6", "a": "g5", "b": "g6",  "label": "yes",       "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eg7", "a": "g6", "b": "g7",  "label": "",          "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eg8", "a": "g7", "b": "g8",  "label": "",          "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eg9", "a": "g8", "b": "g9",  "label": "",          "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eg10","a": "g9", "b": "g10", "label": "",          "style": "solid", "anim": false, "arrows": "end"}
+  ]
+}

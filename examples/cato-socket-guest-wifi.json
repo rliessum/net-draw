@@ -1,0 +1,39 @@
+{
+  "zones": [
+    {"id": "zc", "x": 470, "y": 175, "w": 430, "h": 175, "label": "CATO Socket Cluster (HA active/standby)", "color": "#2dd4bf"},
+    {"id": "zg", "x": 120, "y": 505, "w": 470, "h": 250, "label": "Guest Wireless — WPA2/WPA3-PSK · segmented, client isolation", "color": "#f59e0b"},
+    {"id": "za", "x": 860, "y": 470, "w": 300, "h": 300, "label": "IT Admin Zone — management plane only", "color": "#a78bfa"}
+  ],
+  "nodes": [
+    {"id": "cloud", "type": "cloud", "x": 685, "y": 80, "label": "Cato Cloud (PoP)", "provider": "Cato Networks SASE", "disp": "partner", "notes": "SD-WAN / SSE cloud. Sockets build encrypted tunnels to the nearest PoP."},
+
+    {"id": "sk1", "type": "router", "x": 575, "y": 255, "label": "CATO Socket — Primary", "accent": "#2dd4bf", "dev": "socket-01", "ip": "10.10.0.2", "disp": "friendly", "notes": "Data interfaces: WAN + LAN. Mgmt IF on admin VLAN only."},
+    {"id": "sk2", "type": "router", "x": 795, "y": 255, "label": "CATO Socket — Secondary", "accent": "#2dd4bf", "dev": "socket-02", "ip": "10.10.0.3", "disp": "friendly", "notes": "Standby node; VRRP/HA with primary."},
+
+    {"id": "sw", "type": "switch", "x": 685, "y": 420, "label": "Core Switch", "dev": "core-sw-01", "ip": "10.10.0.1", "notes": "802.1Q trunk: guest VLAN 30, admin/mgmt VLAN 100."},
+
+    {"id": "ap", "type": "wifi", "x": 330, "y": 575, "label": "Guest AP", "dev": "ap-guest-01", "notes": "SSID: GUEST · WPA3-SAE / WPA2-PSK transition · client isolation on · guest VLAN 30, no route to internal or mgmt."},
+    {"id": "gl", "type": "laptop", "x": 235, "y": 705, "label": "Guest Laptop", "disp": "unknown"},
+    {"id": "gp", "type": "phone", "x": 435, "y": 705, "label": "Guest Phone", "disp": "unknown"},
+
+    {"id": "adm", "type": "workstation", "x": 950, "y": 560, "label": "IT Admin", "dev": "admin-wks-01", "ip": "192.168.100.10", "owner": "it-admin", "disp": "friendly", "notes": "Only host permitted to reach Socket + switch management interfaces (mgmt VLAN 100)."},
+    {"id": "mgmtsw", "type": "switch", "x": 1010, "y": 690, "label": "Mgmt Switch", "accent": "#a78bfa", "dev": "mgmt-sw-01", "notes": "Out-of-band management VLAN 100."}
+  ],
+  "edges": [
+    {"id": "e1", "a": "cloud", "b": "sk1", "label": "SD-WAN tunnel", "style": "solid", "anim": true, "arrows": "both"},
+    {"id": "e2", "a": "cloud", "b": "sk2", "label": "SD-WAN tunnel", "style": "solid", "anim": true, "arrows": "both"},
+    {"id": "e3", "a": "sk1", "b": "sk2", "label": "HA sync", "style": "dashed", "anim": false, "arrows": "both"},
+
+    {"id": "e4", "a": "sk1", "b": "sw", "label": "LAN", "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "e5", "a": "sk2", "b": "sw", "label": "LAN", "style": "solid", "anim": false, "arrows": "none"},
+
+    {"id": "e6", "a": "sw", "b": "ap", "label": "Guest VLAN 30", "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "e7", "a": "ap", "b": "gl", "label": "WPA2/WPA3-PSK", "style": "dashed", "anim": false, "arrows": "none"},
+    {"id": "e8", "a": "ap", "b": "gp", "label": "PSK", "style": "dashed", "anim": false, "arrows": "none"},
+
+    {"id": "e9", "a": "adm", "b": "mgmtsw", "label": "mgmt VLAN 100", "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "e10", "a": "mgmtsw", "b": "sk1", "label": "MGMT (restricted)", "style": "dotted", "anim": false, "arrows": "end"},
+    {"id": "e11", "a": "mgmtsw", "b": "sk2", "label": "MGMT (restricted)", "style": "dotted", "anim": false, "arrows": "end"},
+    {"id": "e12", "a": "mgmtsw", "b": "sw", "label": "MGMT", "style": "dotted", "anim": false, "arrows": "end"}
+  ]
+}

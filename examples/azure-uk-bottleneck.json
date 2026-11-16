@@ -1,0 +1,51 @@
+{
+  "zones": [
+    {"id": "z1", "x": 40,   "y": 110, "w": 340, "h": 470, "label": "Attacker · Azure East US (USA)", "color": "#38bdf8"},
+    {"id": "z2", "x": 420,  "y": 110, "w": 300, "h": 470, "label": "Public internet · transatlantic", "color": "#94a3b8"},
+    {"id": "z3", "x": 760,  "y": 110, "w": 580, "h": 470, "label": "Target site · United Kingdom", "color": "#34d399"}
+  ],
+  "nodes": [
+    {"id": "azure", "type": "cloud",       "x": 210,  "y": 205, "label": "Azure — East US", "provider": "Azure East US", "disp": "adversary", "notes": "Attacker VM sits on a huge egress pipe (often 10-40 Gbps) with low local latency. Almost none of that capacity can actually be applied to this target."},
+    {"id": "atk",   "type": "threatactor", "x": 210,  "y": 415, "label": "Attacker", "category": "hacker", "sophistication": "advanced", "disp": "adversary", "notes": "Generates requests / attack traffic. Its OWN bandwidth is effectively irrelevant — the achievable rate is set downstream, on the target side."},
+
+    {"id": "inet",  "type": "internet",    "x": 570,  "y": 300, "label": "Public internet", "disp": "neutral", "notes": "~75-90 ms round-trip US <-> UK. Latency caps per-connection throughput via the bandwidth-delay product: even on fat links, a single TCP flow is limited by window size / RTT. More RTT = less speed per connection."},
+
+    {"id": "fw",    "type": "firewall",    "x": 910,  "y": 210, "label": "UniFi Gateway", "dev": "udm", "ip": "203.0.113.10", "disp": "victim", "effects": ["issue"], "notes": "CEILING 1 — the 1 GbE WAN uplink: ~940 Mbps usable TCP, hard maximum. CEILING 2 — NAT / port-forward + connection tracking (and IPS/DPI if enabled) add per-packet CPU cost and a finite session-table size. New-connection rate and pps are capped here, not just bandwidth."},
+    {"id": "vm",    "type": "webserver",   "x": 1190, "y": 210, "label": "Web server VM", "dev": "web01", "ip": "10.0.0.20", "dns": "web01.corp.local", "disp": "victim", "effects": ["issue"], "notes": "CEILING 3 — 4 vCPU, 16 GB RAM. Must actually build every response: TLS, app logic and worker/thread limits cap requests/sec well before the link fills."},
+    {"id": "host",  "type": "hypervisor",  "x": 1190, "y": 420, "label": "Hypervisor + NVMe VHDX", "dev": "esx01", "disp": "victim", "notes": "CEILING 4 — the VHDX lives on NVMe. Storage IOPS / latency and the virtual switch add a further ceiling under load (random I/O, logging, cache misses)."},
+
+    {"id": "bn",    "type": "document",    "x": 690,  "y": 640, "label": "Effective speed = min(all target hops)", "disp": "neutral", "notes": "The attacker's real throughput is the SLOWEST link in the chain on the target side: 1 GbE WAN, then firewall NAT/IPS + session limits, then the VM's CPU/RAM, then NVMe I/O. Azure could push far more — the target dictates the rate."}
+  ],
+  "edges": [
+    {"id": "e0", "a": "azure", "b": "atk",  "label": "hosts",                        "style": "dotted", "anim": false, "arrows": "end"},
+    {"id": "e1", "a": "atk",   "b": "inet", "label": "requests (10+ Gbps available)","style": "dashed", "anim": true,  "arrows": "end"},
+    {"id": "e2", "a": "inet",  "b": "fw",   "label": "1 GbE WAN (~940 Mbps)",         "style": "dashed", "anim": true,  "arrows": "end"},
+    {"id": "e3", "a": "fw",    "b": "vm",   "label": "DNAT tcp/80 -> web01",          "style": "dashed", "anim": true,  "arrows": "end"},
+    {"id": "e4", "a": "vm",    "b": "host", "label": "VHDX on NVMe",                  "style": "dotted", "anim": false, "arrows": "end"},
+    {"id": "e5", "a": "vm",    "b": "atk",  "label": "response rate = min(hops)",     "style": "dashed", "anim": true,  "arrows": "end"}
+  ],
+  "journey": {
+    "steps": [
+      {"note": "Scenario: an attacker running from a VM in Azure East US (USA) targets a web service in the UK. The intuition 'the attacker is on a fast cloud pipe, so it's fast' is wrong — let's follow where the speed is actually decided.",
+       "show": ["z1", "azure", "atk", "e0"], "highlight": ["azure", "atk"], "focus": true},
+
+      {"note": "The attacker side looks unlimited: an Azure VM can have 10-40 Gbps of egress. But raw egress is only usable if everything downstream can accept it — it can't. This number is a red herring.",
+       "show": [], "highlight": ["azure"], "focus": true},
+
+      {"note": "First reality check — the internet in between. US<->UK is ~75-90 ms round-trip. Because of the bandwidth-delay product, a single TCP connection's throughput is capped by window size / RTT. High latency alone throttles per-connection speed no matter how fat the pipes are.",
+       "show": ["z2", "inet", "e1"], "highlight": ["inet"], "focus": true},
+
+      {"note": "Ceiling 1 — the target's 1 GbE WAN. Everything must funnel through the UniFi gateway's single gigabit uplink: ~940 Mbps usable, a hard maximum. The attacker's 10+ Gbps instantly becomes <1 Gbps here.",
+       "show": ["z3", "fw", "e2"], "highlight": ["fw"], "focus": true},
+
+      {"note": "Ceiling 2 — the firewall itself. Port-forwarding is NAT plus connection tracking (and IPS/DPI if enabled). That adds per-packet CPU cost and a finite session table, so new-connections/sec and packets/sec are limited here too — not just bandwidth.",
+       "show": [], "highlight": ["fw"], "focus": true},
+
+      {"note": "Ceiling 3 & 4 — the web VM and its storage. HTTP is forwarded to web01 (4 vCPU, 16 GB RAM), which has to build every response (TLS, app logic, worker limits) — capping requests/sec. Its VHDX sits on NVMe, so storage IOPS/latency and the vSwitch add one more ceiling under load.",
+       "show": ["vm", "host", "e3", "e4"], "highlight": ["vm", "host"], "focus": true},
+
+      {"note": "Punchline: the attacker's effective speed = the SLOWEST hop on the target side (1 GbE WAN -> firewall NAT/IPS -> VM CPU/RAM -> NVMe I/O), further throttled by transatlantic latency. The attacker doesn't control the rate — the target's weakest link does. To go faster you must remove the target-side bottleneck; to defend, you deliberately keep those ceilings low (rate-limits, connection caps, WAF).",
+       "show": ["bn", "e5"], "highlight": ["bn"], "focus": true}
+    ]
+  }
+}

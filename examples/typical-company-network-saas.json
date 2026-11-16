@@ -1,0 +1,127 @@
+{
+  "zones": [
+    {"id": "zRemote", "x": 40,  "y": 80,   "w": 320, "h": 330, "label": "Remote & hybrid workers", "color": "#c084fc"},
+    {"id": "zSupp",   "x": 40,  "y": 470,  "w": 320, "h": 340, "label": "Suppliers & partners", "color": "#94a3b8"},
+    {"id": "zMgmt",   "x": 40,  "y": 870,  "w": 320, "h": 220, "label": "Mgmt VLAN 99 · 10.10.99.0/24", "color": "#f87171"},
+    {"id": "zInet",   "x": 420, "y": 80,   "w": 280, "h": 320, "label": "Internet", "color": "#38bdf8"},
+    {"id": "zEdge",   "x": 420, "y": 450,  "w": 280, "h": 170, "label": "Perimeter", "color": "#fb923c"},
+    {"id": "zCore",   "x": 420, "y": 670,  "w": 280, "h": 260, "label": "Core LAN · 10.10.0.0/16", "color": "#60a5fa"},
+    {"id": "zUsers",  "x": 40,  "y": 1150, "w": 660, "h": 220, "label": "User VLAN 10 · 10.10.10.0/24 · ~50 staff", "color": "#34d399"},
+    {"id": "zM365",   "x": 760, "y": 80,   "w": 740, "h": 340, "label": "Microsoft 365 tenant · Entra hybrid", "color": "#818cf8"},
+    {"id": "zSaaS",   "x": 760, "y": 470,  "w": 740, "h": 190, "label": "SaaS business apps · Entra SSO (SAML / OIDC) + SCIM", "color": "#f472b6"},
+    {"id": "zSrv",    "x": 760, "y": 710,  "w": 740, "h": 340, "label": "Server VLAN 20 · 10.10.20.0/24 · VMs on Hyper-V", "color": "#2dd4bf"},
+    {"id": "zWeb",    "x": 760, "y": 1100, "w": 380, "h": 270, "label": "Public website · third-party hosted", "color": "#e879f9"},
+    {"id": "zLOB",    "x": 1180,"y": 1100, "w": 320, "h": 270, "label": "On-prem ERP", "color": "#fbbf24"}
+  ],
+  "nodes": [
+    {"id": "hybrid",  "type": "person",  "x": 120, "y": 170, "label": "Hybrid staff", "category": "employee", "notes": "Work from home 2–3 days a week."},
+    {"id": "rlaptop", "type": "laptop",  "x": 270, "y": 170, "label": "Remote laptops ×12", "owner": "Intune-managed", "notes": "Entra hybrid joined, BitLocker, MDE onboarded. Always-on VPN back to the office for the ERP; SaaS and M365 go direct."},
+    {"id": "mobile",  "type": "phone",   "x": 120, "y": 320, "label": "Mobiles ×50", "owner": "Intune MAM", "notes": "Outlook / Teams / CRM app on personal and company phones, app protection policies."},
+    {"id": "homert",  "type": "router",  "x": 270, "y": 320, "label": "Home broadband", "notes": "Untrusted — staff home routers, hotel and café Wi-Fi."},
+
+    {"id": "erpv",    "type": "org",     "x": 120, "y": 560, "label": "ERP vendor", "category": "software supplier", "notes": "Remote support for the on-prem ERP on request, brokered through the MSP's supplier VPN."},
+    {"id": "msft",    "type": "org",     "x": 275, "y": 560, "label": "Microsoft", "category": "cloud provider", "notes": "Operates the M365 tenant, Entra ID and Defender cloud services."},
+    {"id": "payroll", "type": "org",     "x": 120, "y": 720, "label": "Payroll bureau", "category": "finance", "notes": "Receives the monthly payroll export from the HR SaaS platform."},
+    {"id": "msp",     "type": "org",     "x": 275, "y": 720, "label": "MSP · managed IT", "category": "outsourced IT", "notes": "Runs IT for the company: service desk, patching, backups, firewall/switch changes, M365, Defender and SaaS admin. Connects via supplier VPN with MFA; privileged access time-boxed and logged."},
+
+    {"id": "paw1",    "type": "workstation", "x": 280, "y": 980, "label": "Admin PAW 01", "dev": "paw-01", "ip": "10.10.99.21", "notes": "Privileged access workstation. Only devices allowed to reach the firewall / switch management plane."},
+    {"id": "paw2",    "type": "workstation", "x": 120, "y": 980, "label": "Admin PAW 02", "dev": "paw-02", "ip": "10.10.99.22", "notes": "Second admin workstation (Tier 0 / Tier 1 admins)."},
+
+    {"id": "inet",    "type": "internet", "x": 560, "y": 150, "label": "Internet"},
+    {"id": "isp",     "type": "router",   "x": 560, "y": 300, "label": "ISP router", "dev": "1 Gbps FTTP", "ip": "203.0.113.1"},
+
+    {"id": "fw",      "type": "firewall", "x": 560, "y": 535, "label": "Firewall + VPN", "dev": "fw01", "ip": "203.0.113.10", "notes": "NGFW with remote-access VPN (IKEv2 + Entra MFA) and supplier VPN. Management interface bound to VLAN 99 only — WAN / user-VLAN admin disabled."},
+
+    {"id": "core",    "type": "switch",   "x": 560, "y": 740, "label": "Core switch", "dev": "core-sw-01", "ip": "10.10.0.1"},
+    {"id": "access",  "type": "switch",   "x": 560, "y": 860, "label": "Access switches ×3", "dev": "PoE, 48-port"},
+
+    {"id": "laptops", "type": "laptop",      "x": 130, "y": 1260, "label": "Staff laptops ×40", "owner": "Intune + MDE"},
+    {"id": "wifi",    "type": "wifi",        "x": 300, "y": 1260, "label": "Office Wi-Fi ×3", "dev": "WPA3-Enterprise"},
+    {"id": "desktops","type": "workstation", "x": 470, "y": 1260, "label": "Desktops ×8", "owner": "Finance, reception"},
+    {"id": "printers","type": "printer",     "x": 630, "y": 1260, "label": "Printers ×2"},
+
+    {"id": "mde",     "type": "cloud", "x": 880,  "y": 170, "label": "Defender for Endpoint", "accent": "#f87171", "provider": "MDE · Defender XDR", "notes": "EDR sensor on every laptop, desktop and server; alerts to the MSP and IT lead."},
+    {"id": "exo",     "type": "cloud", "x": 1130, "y": 170, "label": "Exchange Online", "accent": "#38bdf8", "provider": "Microsoft 365"},
+    {"id": "teams",   "type": "cloud", "x": 1380, "y": 170, "label": "Teams", "accent": "#a78bfa", "provider": "Microsoft 365"},
+    {"id": "spo",     "type": "cloud", "x": 880,  "y": 330, "label": "SharePoint Online", "accent": "#2dd4bf", "provider": "Microsoft 365"},
+    {"id": "odb",     "type": "cloud", "x": 1130, "y": 330, "label": "OneDrive", "accent": "#60a5fa", "provider": "Microsoft 365"},
+    {"id": "entra",   "type": "cloud", "x": 1380, "y": 330, "label": "Entra ID (hybrid)", "accent": "#818cf8", "provider": "Conditional Access + MFA", "notes": "Users and groups synced from on-prem AD; password hash sync; devices Entra hybrid joined. Identity provider for the SaaS apps (SSO + SCIM provisioning)."},
+
+    {"id": "hr",      "type": "cloud", "x": 880,  "y": 565, "label": "HR platform", "accent": "#f472b6", "provider": "SaaS · SSO + SCIM", "notes": "Employee records, leave, onboarding. Feeds joiners/leavers; sends payroll export to the bureau."},
+    {"id": "crm",     "type": "cloud", "x": 1060, "y": 565, "label": "Sales CRM", "accent": "#fb923c", "provider": "SaaS · SSO + SCIM", "notes": "Pipeline, quotes, customer contacts. Mobile app for field sales."},
+    {"id": "fin",     "type": "cloud", "x": 1240, "y": 565, "label": "Finance", "accent": "#34d399", "provider": "SaaS · SSO + SCIM", "notes": "Accounts, invoicing, expenses. Journals and invoices exchanged with the on-prem ERP via a nightly API integration."},
+
+    {"id": "ca01",    "type": "server", "x": 860,  "y": 800, "label": "CA01 · AD CS", "dev": "Enterprise CA", "ip": "10.10.20.13", "notes": "Issuing CA for Wi-Fi (802.1X), VPN and computer certificates via auto-enrolment."},
+    {"id": "dc01",    "type": "server", "x": 1040, "y": 800, "label": "DC01 · AD DS", "dev": "dc01", "ip": "10.10.20.11", "dns": "contoso.local"},
+    {"id": "dc02",    "type": "server", "x": 1220, "y": 800, "label": "DC02 · AD DS", "dev": "dc02", "ip": "10.10.20.12", "dns": "contoso.local"},
+    {"id": "aadc",    "type": "server", "x": 1400, "y": 800, "label": "Entra Connect", "dev": "sync01", "ip": "10.10.20.14"},
+    {"id": "hyperv",  "type": "hypervisor",   "x": 860,  "y": 960, "label": "Hyper-V hosts ×2", "dev": "hv01 / hv02"},
+    {"id": "backup",  "type": "backupserver", "x": 1040, "y": 960, "label": "Backup server", "dev": "bk01", "ip": "10.10.20.30"},
+    {"id": "files",   "type": "server",       "x": 1220, "y": 960, "label": "File server", "dev": "fs01", "ip": "10.10.20.20"},
+    {"id": "sql",     "type": "database",     "x": 1400, "y": 960, "label": "SQL Server", "dev": "sql01", "ip": "10.10.20.40"},
+
+    {"id": "erp",     "type": "appserver", "x": 1340, "y": 1235, "label": "ERP", "dev": "app-erp", "ip": "10.10.20.54", "notes": "Stock, orders, production planning. Stays on-prem (VM on Hyper-V) with its database on SQL Server. Remote users reach it over the VPN."},
+
+    {"id": "website", "type": "webserver", "x": 950,  "y": 1185, "label": "Company website", "dns": "www.contoso.co.uk", "notes": "Marketing site / CMS. Hosted off-site — no connection to the office network. Contact forms email sales via Exchange Online."},
+    {"id": "visitors","type": "person",    "x": 855,  "y": 1310, "label": "Customers", "category": "public"},
+    {"id": "webhost", "type": "org",       "x": 1045, "y": 1310, "label": "Web host", "category": "third party", "notes": "Hosts and patches the website; the company's web agency has CMS admin access."}
+  ],
+  "edges": [
+    {"id": "e1",  "a": "inet",    "b": "isp",     "label": "WAN", "style": "solid", "anim": true, "arrows": "both"},
+    {"id": "e2",  "a": "isp",     "b": "fw",      "label": "outside", "style": "solid", "anim": true, "arrows": "both"},
+    {"id": "e3",  "a": "fw",      "b": "core",    "label": "inside", "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "e4",  "a": "core",    "b": "access",  "label": "10 GbE", "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "e5",  "a": "access",  "b": "wifi",    "label": "", "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "e6",  "a": "wifi",    "b": "laptops", "label": "Wi-Fi 6", "style": "dashed", "anim": false, "arrows": "none"},
+    {"id": "e7",  "a": "access",  "b": "desktops","label": "", "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "e8",  "a": "access",  "b": "printers","label": "", "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "e9",  "a": "core",    "b": "hyperv",  "label": "VLAN 20", "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "e10", "a": "paw2",    "b": "core",    "label": "VLAN 99", "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "e11", "a": "paw1",    "b": "fw",      "label": "mgmt · VLAN 99 only", "style": "dashed", "anim": false, "arrows": "end"},
+
+    {"id": "e12", "a": "hybrid",  "b": "rlaptop", "label": "", "style": "dotted", "anim": false, "arrows": "none"},
+    {"id": "e13", "a": "rlaptop", "b": "homert",  "label": "", "style": "dashed", "anim": false, "arrows": "none"},
+    {"id": "e14", "a": "homert",  "b": "inet",    "label": "", "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "e15", "a": "homert",  "b": "fw",      "label": "Always-on VPN + MFA", "style": "dashed", "anim": true, "arrows": "both"},
+
+    {"id": "e16", "a": "msft",    "b": "inet",    "label": "operates M365", "style": "dotted", "anim": false, "arrows": "none"},
+    {"id": "e17", "a": "msp",     "b": "fw",      "label": "supplier VPN · MFA", "style": "dashed", "anim": true, "arrows": "end"},
+
+    {"id": "e19", "a": "inet",    "b": "spo",     "label": "M365 · HTTPS 443", "style": "solid", "anim": true, "arrows": "both"},
+    {"id": "e20", "a": "inet",    "b": "mde",     "label": "EDR telemetry", "style": "dotted", "anim": true, "arrows": "end"},
+    {"id": "e31", "a": "inet",    "b": "hr",      "label": "SaaS · HTTPS", "style": "solid", "anim": true, "arrows": "both"},
+    {"id": "e21", "a": "aadc",    "b": "entra",   "label": "sync · PHS", "style": "dashed", "anim": true, "arrows": "end"},
+
+    {"id": "e32", "a": "entra",   "b": "hr",      "label": "", "style": "dotted", "anim": false, "arrows": "end"},
+    {"id": "e33", "a": "entra",   "b": "crm",     "label": "", "style": "dotted", "anim": false, "arrows": "end"},
+    {"id": "e34", "a": "entra",   "b": "fin",     "label": "SSO · SCIM", "style": "dotted", "anim": false, "arrows": "end"},
+
+    {"id": "e22", "a": "ca01",    "b": "dc01",    "label": "auto-enrol", "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "e23", "a": "dc01",    "b": "dc02",    "label": "replication", "style": "solid", "anim": false, "arrows": "both"},
+    {"id": "e24", "a": "dc02",    "b": "aadc",    "label": "LDAP", "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "e25", "a": "hyperv",  "b": "backup",  "label": "nightly", "style": "dashed", "anim": false, "arrows": "end"},
+    {"id": "e29", "a": "erp",     "b": "sql",     "label": "SQL", "style": "solid", "anim": false, "arrows": "none"},
+
+    {"id": "e18", "a": "visitors","b": "website", "label": "HTTPS", "style": "solid", "anim": true, "arrows": "end"},
+    {"id": "e30", "a": "webhost", "b": "website", "label": "hosts", "style": "dotted", "anim": false, "arrows": "end"}
+  ],
+  "journey": {
+    "steps": [
+      {"note": "The same ~50-person company, but most business apps have moved to SaaS: only the ERP stays on-prem. HR, Sales CRM and Finance are cloud services signed into with Entra ID.", "show": [], "highlight": [], "focus": true},
+      {"note": "One internet connection: the ISP router hands off to a single firewall. The office, remote VPN users and suppliers all come through here.", "show": [], "highlight": ["inet", "isp", "fw"], "focus": true},
+      {"note": "The firewall also terminates the VPNs: always-on VPN for remote laptops (now mainly needed for the ERP) and a supplier VPN for the MSP. Both require MFA.", "show": [], "highlight": ["fw", "rlaptop", "homert", "msp", "isp"], "focus": true},
+      {"note": "The firewall's management interface is only reachable from the management VLAN — two admin PAWs. Admin access from the WAN or user VLAN is switched off.", "show": [], "highlight": ["fw", "paw1", "paw2", "core"], "focus": true},
+      {"note": "Inside: a core switch and three PoE access switches serve ~40 laptops (mostly on Wi-Fi), 8 desktops and 2 printers on the user VLAN.", "show": [], "highlight": ["core", "access", "wifi", "laptops", "desktops", "printers"], "focus": true},
+      {"note": "On-prem identity is still the root of trust: two domain controllers (AD DS) and an enterprise CA (AD CS). These are the Tier 0 crown jewels.", "show": [], "highlight": ["dc01", "dc02", "ca01"], "focus": true},
+      {"note": "Entra hybrid mode: Entra Connect syncs users from AD to Entra ID with password hash sync. Conditional Access and MFA protect every cloud sign-in.", "show": [], "highlight": ["dc02", "aadc", "entra"], "focus": true},
+      {"note": "Microsoft 365 carries day-to-day work: Exchange Online mail, Teams, SharePoint Online and OneDrive — all reached over HTTPS from wherever staff are.", "show": [], "highlight": ["inet", "exo", "teams", "spo", "odb", "entra"], "focus": true},
+      {"note": "HR, Sales CRM and Finance are SaaS. Staff reach them directly over HTTPS; Entra ID is the identity provider — single sign-on plus SCIM so joiners and leavers are provisioned automatically.", "show": [], "highlight": ["inet", "entra", "hr", "crm", "fin"], "focus": true},
+      {"note": "That makes Entra ID (and the on-prem AD it syncs from) the key to every business app. A compromised AD account now opens HR, CRM and Finance too.", "show": [], "highlight": ["dc01", "dc02", "aadc", "entra", "hr", "crm", "fin"], "focus": true},
+      {"note": "The ERP stays on-prem as a VM on the Hyper-V hosts, with its database on SQL Server and nightly backups. Finance exchanges journals and invoices with it via an API integration.", "show": [], "highlight": ["erp", "sql", "hyperv", "backup", "fin"], "focus": true},
+      {"note": "Microsoft Defender for Endpoint runs on every laptop, desktop and server and streams EDR telemetry to the Defender portal.", "show": [], "highlight": ["inet", "mde", "laptops", "desktops", "rlaptop", "hyperv"], "focus": true},
+      {"note": "IT is outsourced to an MSP: service desk, patching, backups, firewall changes and M365 / Defender / SaaS admin — through the supplier VPN with MFA, time-boxed and logged.", "show": [], "highlight": ["msp", "fw", "paw1", "mde", "entra"], "focus": true},
+      {"note": "The public website is run by a third-party hosting provider, completely separate from the office network. Customers reach it directly over HTTPS.", "show": [], "highlight": ["visitors", "website", "webhost"], "focus": true},
+      {"note": "Outside the walls: hybrid staff on home broadband, phones managed with Intune, and suppliers — Microsoft runs the tenant, the ERP vendor supports the ERP, and the payroll bureau takes the HR export.", "show": [], "highlight": ["hybrid", "rlaptop", "mobile", "homert", "msft", "msp", "erpv", "payroll"], "focus": true}
+    ]
+  }
+}

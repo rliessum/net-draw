@@ -1,0 +1,33 @@
+{
+  "zones": [
+    {"id": "zlow",  "x": 150, "y": 50,  "w": 330, "h": 660, "label": "Low Side · Corporate (Internet-connected)", "color": "#60a5fa"},
+    {"id": "zhigh", "x": 800, "y": 110, "w": 420, "h": 610, "label": "High Side · Air-gapped Secure Enclave", "color": "#34d399"},
+    {"id": "zgap",  "x": 500, "y": 60,  "w": 280, "h": 650, "label": "AIR GAP — no network path, media only", "color": "#f59e0b"}
+  ],
+  "nodes": [
+    {"id": "cloud", "type": "cloud",       "x": 250, "y": 120, "label": "Internet", "disp": "neutral"},
+    {"id": "ws",    "type": "workstation", "x": 320, "y": 265, "label": "Analyst Workstation", "dev": "corp-wks-07", "ip": "10.20.5.7"},
+    {"id": "vl",    "type": "laptop",      "x": 320, "y": 440, "label": "Vendor Laptop", "disp": "unknown"},
+    {"id": "an",    "type": "workstation", "x": 320, "y": 610, "label": "Review Station", "dev": "corp-wks-11"},
+
+    {"id": "ing",   "type": "server",       "x": 900, "y": 200, "label": "Ingest Host", "dev": "sec-ingest-01", "disp": "friendly", "notes": "Malware-scans imported media before release into the enclave."},
+    {"id": "exp",   "type": "server",       "x": 900, "y": 330, "label": "Export Host", "dev": "sec-export-01", "disp": "friendly", "notes": "Two-person review before anything leaves the high side."},
+    {"id": "upd",   "type": "updateserver", "x": 900, "y": 470, "label": "Update Server", "dev": "sec-wsus-01", "disp": "friendly"},
+    {"id": "db",    "type": "database",     "x": 900, "y": 610, "label": "Classified DB", "dev": "sec-db-01", "disp": "friendly"},
+    {"id": "hw",    "type": "workstation",  "x": 1105,"y": 400, "label": "Secure Workstation", "dev": "sec-wks-01", "ip": "172.16.9.20", "disp": "friendly", "notes": "Operator workstation inside the enclave. No path to the low side — all data arrives/leaves via reviewed media."}
+  ],
+  "edges": [
+    {"id": "n1", "a": "cloud", "b": "ws",  "label": "",     "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "n2", "a": "ing",   "b": "exp", "label": "LAN",  "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "n3", "a": "ing",   "b": "upd", "label": "LAN",  "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "n4", "a": "upd",   "b": "db",  "label": "LAN",  "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "n5", "a": "hw",    "b": "ing", "label": "",     "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "n6", "a": "hw",    "b": "exp", "label": "",     "style": "solid", "anim": false, "arrows": "none"},
+    {"id": "n7", "a": "hw",    "b": "db",  "label": "LAN",  "style": "solid", "anim": false, "arrows": "none"},
+
+    {"id": "s1", "a": "ws", "b": "ing", "label": "USB import",    "style": "sneakernet", "anim": false, "arrows": "end"},
+    {"id": "s2", "a": "vl", "b": "upd", "label": "patch media",   "style": "sneakernet", "anim": false, "arrows": "end"},
+    {"id": "s3", "a": "db", "b": "an",  "label": "case files",    "style": "sneakernet", "anim": false, "arrows": "end"},
+    {"id": "s4", "a": "exp","b": "ws",  "label": "vetted export", "style": "sneakernet", "anim": false, "arrows": "end"}
+  ]
+}

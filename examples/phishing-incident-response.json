@@ -1,0 +1,82 @@
+{
+  "zones": [
+    {
+      "id": "sl1",
+      "x": 60, "y": 40, "w": 1690, "h": 676,
+      "label": "Phishing Incident Response",
+      "color": "#60a5fa",
+      "kind": "swimlane",
+      "orient": "h",
+      "lanes": ["Employee", "SOC Analyst", "CSIRT / IR Lead", "IT Operations", "Management & Comms"]
+    }
+  ],
+  "nodes": [
+    {"id": "n1",  "type": "startend",  "x": 180,  "y": 131, "label": "Suspicious email"},
+    {"id": "n2",  "type": "process",   "x": 400,  "y": 131, "label": "Report phish", "notes": "User reports via the report-phishing button or service desk."},
+    {"id": "n3",  "type": "process",   "x": 400,  "y": 261, "label": "Triage & analyse", "owner": "SOC Tier 1", "notes": "Check headers, URLs, attachments; detonate in sandbox; check threat intel."},
+    {"id": "n4",  "type": "decision",  "x": 650,  "y": 261, "label": "Malicious?"},
+    {"id": "n5",  "type": "process",   "x": 890,  "y": 131, "label": "Notify reporter", "notes": "Thank reporter, confirm benign, close ticket."},
+    {"id": "n6",  "type": "startend",  "x": 1090, "y": 131, "label": "Close"},
+    {"id": "n7",  "type": "process",   "x": 650,  "y": 391, "label": "Declare incident", "owner": "IR Lead", "notes": "Set severity per IR matrix; open incident ticket; start timeline log."},
+    {"id": "n8",  "type": "dataio",    "x": 900,  "y": 391, "label": "Scope recipients", "notes": "Query mail logs for all recipients of the sender / URL / subject."},
+    {"id": "n9",  "type": "process",   "x": 900,  "y": 521, "label": "Purge & block IOCs", "owner": "Email admin", "notes": "Purge from all mailboxes; block sender domain, URLs and hashes at gateway, proxy and EDR."},
+    {"id": "n10", "type": "decision",  "x": 1150, "y": 391, "label": "Creds compromised?"},
+    {"id": "n11", "type": "process",   "x": 1130, "y": 521, "label": "Reset credentials", "owner": "IAM team", "notes": "Force password reset; revoke sessions and OAuth tokens; review MFA."},
+    {"id": "n12", "type": "process",   "x": 1390, "y": 521, "label": "Clean & restore hosts", "notes": "Isolate affected endpoints, run full scans, reimage if needed, restore access."},
+    {"id": "n14", "type": "process",   "x": 650,  "y": 651, "label": "Notify management", "notes": "Brief stakeholders; agree comms plan."},
+    {"id": "n16", "type": "decision",  "x": 900,  "y": 651, "label": "Reportable?"},
+    {"id": "n17", "type": "document",  "x": 1130, "y": 612, "label": "Regulator report", "notes": "GDPR 72-hour assessment with DPO; notify regulator / affected users if required."},
+    {"id": "n15", "type": "process",   "x": 1330, "y": 651, "label": "Post-incident review", "owner": "IR Lead"},
+    {"id": "n18", "type": "document",  "x": 1520, "y": 651, "label": "Lessons learned", "notes": "Update playbook, IOC watchlists and phishing awareness training."},
+    {"id": "n19", "type": "startend",  "x": 1665, "y": 651, "label": "End"}
+  ],
+  "edges": [
+    {"id": "e1",  "a": "n1",  "b": "n2",  "label": "",    "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "e2",  "a": "n2",  "b": "n3",  "label": "",    "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "e3",  "a": "n3",  "b": "n4",  "label": "",    "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "e4",  "a": "n4",  "b": "n5",  "label": "no",  "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "e5",  "a": "n5",  "b": "n6",  "label": "",    "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "e6",  "a": "n4",  "b": "n7",  "label": "yes", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "e7",  "a": "n7",  "b": "n8",  "label": "",    "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "e8",  "a": "n8",  "b": "n9",  "label": "contain", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "e9",  "a": "n9",  "b": "n10", "label": "",    "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "e10", "a": "n10", "b": "n11", "label": "yes", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "e11", "a": "n11", "b": "n12", "label": "",    "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "e12", "a": "n12", "b": "n15", "label": "",    "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "e13", "a": "n10", "b": "n15", "label": "no",  "style": "dashed", "anim": false, "arrows": "end"},
+    {"id": "e14", "a": "n7",  "b": "n14", "label": "",    "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "e15", "a": "n14", "b": "n16", "label": "",    "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "e16", "a": "n16", "b": "n17", "label": "yes", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "e17", "a": "n17", "b": "n15", "label": "",    "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "e18", "a": "n16", "b": "n15", "label": "no",  "style": "dashed", "anim": false, "arrows": "end"},
+    {"id": "e19", "a": "n15", "b": "n18", "label": "",    "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "e20", "a": "n18", "b": "n19", "label": "",    "style": "solid", "anim": false, "arrows": "end"}
+  ],
+  "journey": {
+    "steps": [
+      {"note": "Detection & Triage. An employee spots a suspicious email and reports it (report-phishing button or service desk). A SOC analyst triages it — headers, URLs, attachments, sandbox detonation, threat intel — and decides: is it malicious?",
+       "show": ["sl1", "n1", "n2", "n3", "n4", "e1", "e2", "e3"], "highlight": ["sl1", "n1", "n2", "n3", "n4"], "focus": true},
+
+      {"note": "Benign path. If it's not malicious, thank the reporter, confirm it's safe and close the ticket. Reporting is never wasted — even false alarms tune detection and reassure users.",
+       "show": ["n5", "n6", "e4", "e5"], "highlight": ["sl1", "n5", "n6"], "focus": false},
+
+      {"note": "Declare the incident. If it IS malicious, the IR Lead declares an incident: set severity from the IR matrix, open the incident ticket and start the timeline log.",
+       "show": ["n7", "e6"], "highlight": ["sl1", "n7"], "focus": false},
+
+      {"note": "Containment. Scope every recipient by querying the mail logs, then purge the message from all mailboxes and block the sender domain, URLs and hashes at the gateway, proxy and EDR.",
+       "show": ["n8", "n9", "e7", "e8", "e9"], "highlight": ["sl1", "n8", "n9"], "focus": false},
+
+      {"note": "Eradication & Recovery. Were credentials compromised? If so, force password resets and revoke sessions/tokens, then clean and restore affected hosts — isolate, scan, reimage if needed.",
+       "show": ["n10", "n11", "n12", "e10", "e11", "e12", "e13"], "highlight": ["sl1", "n10", "n11", "n12"], "focus": false},
+
+      {"note": "Communications & Regulatory. In parallel, brief management and agree a comms plan. If the incident is reportable, complete the regulatory notification (e.g. GDPR 72-hour assessment) with the DPO.",
+       "show": ["n14", "n16", "n17", "e14", "e15", "e16", "e17", "e18"], "highlight": ["sl1", "n14", "n16", "n17"], "focus": false},
+
+      {"note": "Close the loop. A post-incident review captures lessons learned — updating the playbook, IOC watchlists and phishing awareness training — and the incident is formally closed.",
+       "show": ["n15", "n18", "n19", "e19", "e20"], "highlight": ["sl1", "n15", "n18", "n19"], "focus": false},
+
+      {"note": "The full phishing IR flow across five functions: detect → triage → declare → contain → eradicate & recover → communicate → close. Every incident feeds back into stronger detection and training.",
+       "show": [], "highlight": [], "focus": true}
+    ]
+  }
+}

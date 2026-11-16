@@ -1,0 +1,85 @@
+{
+  "zones": [
+    {
+      "id": "sl1",
+      "x": 40, "y": 40, "w": 2020, "h": 806,
+      "label": "Targeting & Exploiting a Wireless Network — Cradle to Grave (conceptual complexity view)",
+      "color": "#38bdf8",
+      "kind": "swimlane",
+      "orient": "h",
+      "lanes": ["1 · Recon & Targeting", "2 · Physical Approach", "3 · RF / Access Attempt", "4 · Foothold & Objective"]
+    }
+  ],
+  "nodes": [
+    {"id": "a0",  "type": "startend", "x": 180,  "y": 165, "label": "Objective defined", "notes": "Attacker motivation & value of the target set the whole effort budget."},
+    {"id": "a1",  "type": "process",  "x": 400,  "y": 165, "label": "Identify target org & sites", "notes": "Which physical locations even have the target network? Multiple sites multiply cost."},
+    {"id": "a2",  "type": "process",  "x": 640,  "y": 165, "label": "Remote wireless recon", "notes": "Public SSID databases, leaked floor plans, job ads naming kit. Passive, low risk — but incomplete."},
+    {"id": "a3",  "type": "decision", "x": 900,  "y": 165, "label": "Target identifiable remotely?", "notes": "Hidden SSID, common vendor names, many tenants in one building → ambiguity."},
+    {"id": "a4",  "type": "process",  "x": 1160, "y": 165, "label": "Assess feasibility & risk", "notes": "Legal exposure, guards, cameras, cost vs a cheaper vector (phishing, supply chain)."},
+    {"id": "a5",  "type": "decision", "x": 1420, "y": 165, "label": "Wireless worth it?", "accent": "#fbbf24"},
+    {"id": "a6",  "type": "startend", "x": 1420, "y": 60,  "label": "Choose another vector", "accent": "#94a3b8", "disp": "neutral", "notes": "Most rational attackers stop here — wireless is often the hard path."},
+
+    {"id": "b1",  "type": "decision", "x": 300,  "y": 340, "label": "Within RF range?", "notes": "Walls, distance, interference. Directional antenna extends reach but needs line-of-sight & dwell time."},
+    {"id": "b2",  "type": "process",  "x": 540,  "y": 340, "label": "Get physically closer", "notes": "Car park, lobby, adjacent unit, drone. Each option adds exposure and time on target."},
+    {"id": "b3",  "type": "decision", "x": 790,  "y": 340, "label": "Access to standoff position?", "notes": "Fencing, access control, private land, patrols, hostile parking."},
+    {"id": "b4",  "type": "process",  "x": 1040, "y": 340, "label": "Establish observation post", "notes": "Stay long enough to capture signal without being noticed — the biggest real-world constraint."},
+    {"id": "b5",  "type": "decision", "x": 1300, "y": 340, "label": "Detected / challenged?", "accent": "#f87171"},
+    {"id": "b6",  "type": "startend", "x": 1300, "y": 235, "label": "Abort / burned", "accent": "#f87171", "disp": "adversary", "effects": ["outage"], "notes": "Physical detection ends the operation and may attribute the actor."},
+
+    {"id": "c1",  "type": "process",  "x": 300,  "y": 515, "label": "Survey RF environment", "notes": "Which networks, bands, client counts. Enterprise vs consumer changes everything."},
+    {"id": "c2",  "type": "decision", "x": 560,  "y": 515, "label": "Which security model?", "accent": "#a78bfa", "notes": "Open / legacy / modern personal / enterprise 802.1X — each is a different difficulty class."},
+    {"id": "c3",  "type": "process",  "x": 560,  "y": 625, "label": "Enterprise 802.1X path", "notes": "Certificate / RADIUS-backed auth: far harder, often needs valid credentials or a device."},
+    {"id": "c4",  "type": "decision", "x": 820,  "y": 515, "label": "Capture opportunity?", "notes": "Needs the right clients present and active. Idle network = nothing to work with."},
+    {"id": "c5",  "type": "process",  "x": 1080, "y": 515, "label": "Attempt access", "notes": "Success depends on key strength, protections (PMF/lockouts), monitoring, and luck."},
+    {"id": "c6",  "type": "decision", "x": 1340, "y": 515, "label": "Access gained?", "accent": "#fbbf24"},
+    {"id": "c7",  "type": "process",  "x": 1340, "y": 625, "label": "Iterate or wait", "notes": "Retry windows, come back another day, or fall back to a different network — time cost compounds."},
+    {"id": "c8",  "type": "process",  "x": 1600, "y": 515, "label": "Join network", "notes": "You're on the RF layer — but that's rarely the actual goal."},
+
+    {"id": "d1",  "type": "decision", "x": 300,  "y": 715, "label": "Segmented guest-only?", "notes": "Well-run networks isolate wireless from crown jewels — you may have reached a dead end."},
+    {"id": "d2",  "type": "process",  "x": 560,  "y": 715, "label": "Enumerate reachable assets", "notes": "NAC, internal firewalls and monitoring all fight you here."},
+    {"id": "d3",  "type": "decision", "x": 820,  "y": 715, "label": "Path to objective?", "accent": "#f87171"},
+    {"id": "d4",  "type": "process",  "x": 1080, "y": 715, "label": "Pivot toward target", "notes": "Every hop is another chance to trip detection / logging / EDR."},
+    {"id": "d5",  "type": "process",  "x": 1340, "y": 715, "label": "Achieve objective", "notes": "Access data / persistence / disruption — the reason for the whole chain."},
+    {"id": "d6",  "type": "startend", "x": 1600, "y": 715, "label": "Objective met", "disp": "victim", "effects": ["breach"], "notes": "The rare end state — reached only if every prior gate went the attacker's way."},
+    {"id": "d7",  "type": "startend", "x": 820,  "y": 60,  "label": "Effort exceeds value → withdraw", "accent": "#94a3b8", "disp": "neutral", "notes": "The most common outcome across all failed branches: cost outruns payoff."}
+  ],
+  "edges": [
+    {"id": "ea0", "a": "a0", "b": "a1", "label": "", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "ea1", "a": "a1", "b": "a2", "label": "", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "ea2", "a": "a2", "b": "a3", "label": "", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "ea3", "a": "a3", "b": "a4", "label": "yes", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "ea3b","a": "a3", "b": "a2", "label": "no — recon more", "style": "dashed", "anim": false, "arrows": "end"},
+    {"id": "ea4", "a": "a4", "b": "a5", "label": "", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "ea5", "a": "a5", "b": "a6", "label": "no", "style": "dashed", "anim": false, "arrows": "end"},
+    {"id": "ea6", "a": "a5", "b": "b1", "label": "yes", "style": "solid", "anim": false, "arrows": "end"},
+
+    {"id": "eb1", "a": "b1", "b": "b3", "label": "yes", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eb1b","a": "b1", "b": "b2", "label": "no", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eb2", "a": "b2", "b": "b3", "label": "", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eb3", "a": "b3", "b": "b4", "label": "yes", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eb3b","a": "b3", "b": "d7", "label": "no access", "style": "dashed", "anim": false, "arrows": "end"},
+    {"id": "eb4", "a": "b4", "b": "b5", "label": "", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "eb5", "a": "b5", "b": "b6", "label": "yes", "style": "dashed", "anim": false, "arrows": "end"},
+    {"id": "eb6", "a": "b5", "b": "c1", "label": "no — proceed", "style": "solid", "anim": false, "arrows": "end"},
+
+    {"id": "ec1", "a": "c1", "b": "c2", "label": "", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "ec2", "a": "c2", "b": "c4", "label": "consumer / personal", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "ec2b","a": "c2", "b": "c3", "label": "enterprise", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "ec3", "a": "c3", "b": "d7", "label": "usually infeasible", "style": "dashed", "anim": false, "arrows": "end"},
+    {"id": "ec4", "a": "c4", "b": "c5", "label": "yes", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "ec4b","a": "c4", "b": "c7", "label": "no clients", "style": "dashed", "anim": false, "arrows": "end"},
+    {"id": "ec5", "a": "c5", "b": "c6", "label": "", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "ec6", "a": "c6", "b": "c8", "label": "yes", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "ec6b","a": "c6", "b": "c7", "label": "no", "style": "dashed", "anim": false, "arrows": "end"},
+    {"id": "ec7", "a": "c7", "b": "c4", "label": "retry", "style": "dashed", "anim": false, "arrows": "end"},
+    {"id": "ec8", "a": "c8", "b": "d1", "label": "", "style": "solid", "anim": false, "arrows": "end"},
+
+    {"id": "ed1", "a": "d1", "b": "d7", "label": "yes — dead end", "style": "dashed", "anim": false, "arrows": "end"},
+    {"id": "ed1b","a": "d1", "b": "d2", "label": "no", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "ed2", "a": "d2", "b": "d3", "label": "", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "ed3", "a": "d3", "b": "d4", "label": "yes", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "ed3b","a": "d3", "b": "d7", "label": "no", "style": "dashed", "anim": false, "arrows": "end"},
+    {"id": "ed4", "a": "d4", "b": "d5", "label": "", "style": "solid", "anim": false, "arrows": "end"},
+    {"id": "ed5", "a": "d5", "b": "d6", "label": "", "style": "solid", "anim": false, "arrows": "end"}
+  ]
+}

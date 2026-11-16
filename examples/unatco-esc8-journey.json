@@ -1,0 +1,77 @@
+{
+  "zones": [
+    {"id": "z1", "x": 40,   "y": 110, "w": 320, "h": 520, "label": "1 · Recon & enumeration (unauth)", "color": "#38bdf8"},
+    {"id": "z2", "x": 400,  "y": 110, "w": 300, "h": 520, "label": "2 · Coercion — no credentials", "color": "#a78bfa"},
+    {"id": "z3", "x": 740,  "y": 110, "w": 360, "h": 520, "label": "3 · NTLM relay to AD CS (ESC8)", "color": "#f97316"},
+    {"id": "z4", "x": 1140, "y": 110, "w": 320, "h": 520, "label": "4 · Credential theft", "color": "#fbbf24"},
+    {"id": "z5", "x": 1500, "y": 110, "w": 440, "h": 520, "label": "5 · Domain compromise & impact", "color": "#f43f5e"}
+  ],
+  "nodes": [
+    {"id": "atk",   "type": "threatactor", "x": 200,  "y": 200, "label": "Pentester — Kali WSL", "category": "hacker", "sophistication": "advanced", "motivation": "organizational-gain", "disp": "adversary", "notes": "Authorized engagement (owner: mrr3b00t007). Starts with ZERO credentials, only network reach to 10.0.0.0/24."},
+    {"id": "recon", "type": "predefined",  "x": 200,  "y": 430, "label": "Recon & enum", "notes": "nmap: unatco.local = AD forest, 2 DCs, AD CS on DC-01. Anonymous LDAP/SMB denied, SMB signing required. Kerberos user-enum found valid accounts; no AS-REP-roastable users; password spray found nothing."},
+
+    {"id": "petit", "type": "predefined",  "x": 550,  "y": 210, "label": "PetitPotam (unauth)", "disp": "adversary", "notes": "MS-EFSR EfsRpcOpenFileRaw coercion (T1187). Works with a null session against the unpatched DC — no credential required."},
+    {"id": "dc2",   "type": "server",      "x": 550,  "y": 440, "label": "DC-02", "dev": "dc-02", "disp": "victim", "effects": ["compromised"], "notes": "Second domain controller (10.0.0.182). Coerced into authenticating to the attacker as its machine account DC-02$."},
+
+    {"id": "relay", "type": "server",      "x": 920,  "y": 210, "label": "ntlmrelayx (10.0.0.226)", "dev": "kali-wsl", "disp": "adversary", "notes": "Relay listener. Coerced auth reaches it via a pre-wired portproxy 10.0.0.226:445 -> WSL. Duplicate targets (-tf) let it skip the anonymous session and relay the real DC-02$ auth."},
+    {"id": "adcs",  "type": "webserver",   "x": 920,  "y": 450, "label": "AD CS /certsrv (ESC8)", "dev": "dc-01", "dns": "dc-01.unatco.local", "disp": "victim", "effects": ["vulnerable"], "notes": "AD CS Web Enrolment over HTTP with NTLM and no EPA (ESC8). The relayed DC-02$ auth enrols a certificate."},
+
+    {"id": "cert",  "type": "document",    "x": 1300, "y": 210, "label": "DC-02$ cert (.pfx)", "disp": "adversary", "notes": "Certificate issued for DC-02$ via the DomainController template (relayed enrolment). 'GOT CERTIFICATE! ID 8'."},
+    {"id": "hash2", "type": "document",    "x": 1300, "y": 370, "label": "DC-02$ NT hash", "disp": "adversary", "notes": "certipy auth -> PKINIT TGT -> UnPAC-the-hash. NT hash 82a3c669d9cfc4a93e9a56a2b22ed7dd."},
+    {"id": "dcsync","type": "predefined",  "x": 1300, "y": 530, "label": "DCSync (DRSUAPI)", "disp": "adversary", "notes": "DC-02$ is a domain controller, so it holds replication rights (T1003.006). Authenticate as DC-02$ and replicate secrets."},
+
+    {"id": "dc1",   "type": "server",      "x": 1650, "y": 210, "label": "DC-01 (AD CS CA)", "dev": "dc-01", "dns": "dc-01.unatco.local", "disp": "victim", "effects": ["exploit", "compromised"], "notes": "Primary DC and Enterprise CA (unatco-DC-01-CA, 10.0.0.181). Replication source for DCSync."},
+    {"id": "admin", "type": "document",    "x": 1650, "y": 390, "label": "Administrator hash", "disp": "adversary", "notes": "Domain Admin credential recovered via DCSync. NT hash cbd633ce5809d73ab9cf2189dcce3b29."},
+
+    {"id": "flag1", "type": "document",    "x": 1860, "y": 300, "label": "C:\\flag.txt — DC-01", "dev": "dc-01", "disp": "victim", "effects": ["breach"], "notes": "Flag written and read back via pass-the-hash wmiexec. 2026-09-23 07:36."},
+    {"id": "flag2", "type": "document",    "x": 1860, "y": 490, "label": "C:\\flag.txt — DC-02", "dev": "dc-02", "disp": "victim", "effects": ["breach"], "notes": "Flag written and read back via pass-the-hash wmiexec. Objective complete on both DCs."}
+  ],
+  "edges": [
+    {"id": "e1",  "a": "atk",    "b": "recon",  "label": "enumerate",              "style": "dotted", "anim": false, "arrows": "end"},
+    {"id": "e2",  "a": "atk",    "b": "petit",  "label": "operate",                "style": "dotted", "anim": false, "arrows": "end"},
+
+    {"id": "e3",  "a": "petit",  "b": "dc2",    "label": "coerce DC-02$ (T1187)",  "style": "dashed", "anim": true,  "arrows": "end"},
+    {"id": "e4",  "a": "dc2",    "b": "relay",  "label": "DC-02$ NTLM auth",       "style": "dashed", "anim": true,  "arrows": "end"},
+    {"id": "e5",  "a": "relay",  "b": "adcs",   "label": "relay -> enrol (ESC8)",  "style": "dashed", "anim": true,  "arrows": "end"},
+
+    {"id": "e6",  "a": "adcs",   "b": "cert",   "label": "issues cert",            "style": "dashed", "anim": false, "arrows": "end"},
+    {"id": "e7",  "a": "cert",   "b": "hash2",  "label": "PKINIT (certipy)",       "style": "dashed", "anim": false, "arrows": "end"},
+    {"id": "e8",  "a": "hash2",  "b": "dcsync", "label": "auth as DC-02$",         "style": "dashed", "anim": false, "arrows": "end"},
+
+    {"id": "e9",  "a": "dcsync", "b": "dc1",    "label": "replicate (DRSUAPI)",    "style": "dashed", "anim": true,  "arrows": "end"},
+    {"id": "e10", "a": "dc1",    "b": "admin",  "label": "dump Administrator",     "style": "dashed", "anim": false, "arrows": "end"},
+
+    {"id": "e11", "a": "admin",  "b": "flag1",  "label": "PtH -> wmiexec",         "style": "dashed", "anim": true,  "arrows": "end"},
+    {"id": "e12", "a": "admin",  "b": "flag2",  "label": "PtH -> wmiexec",         "style": "dashed", "anim": true,  "arrows": "end"}
+  ],
+  "journey": {
+    "steps": [
+      {"note": "Authorized internal pentest of unatco.local. The attacker is a Kali WSL host on the 10.0.0.0/24 segment with NO credentials — only network reach. Goal: drop a flag on C:\\ of the domain controllers.",
+       "show": ["atk"], "highlight": ["atk"], "focus": true},
+
+      {"note": "1 · Recon & enumeration. nmap reveals an AD forest with two DCs and AD CS on DC-01. Anonymous LDAP/SMB is denied and SMB signing is required (good hygiene). Kerberos user-enum finds valid accounts, but there are no AS-REP-roastable users and password spraying finds nothing — no easy credential foothold.",
+       "show": ["z1", "recon", "e1"], "highlight": ["recon"], "focus": true},
+
+      {"note": "2 · Coercion — no credentials needed. DC-02 is vulnerable to unauthenticated PetitPotam (MS-EFSR, T1187). A null-session EfsRpcOpenFileRaw call forces DC-02 to authenticate to the attacker as its machine account, DC-02$.",
+       "show": ["z2", "petit", "dc2", "e2", "e3"], "highlight": ["petit", "dc2"], "focus": true},
+
+      {"note": "3 · NTLM relay to AD CS (ESC8). The coerced DC-02$ authentication is caught by ntlmrelayx (reached via a pre-wired portproxy) and relayed to AD CS Web Enrolment, which runs over HTTP+NTLM with no channel binding. Trick: the DC sends an anonymous session first, so duplicate relay targets (-tf) are used to skip it and relay the real DC-02$ auth.",
+       "show": ["z3", "relay", "adcs", "e4", "e5"], "highlight": ["relay", "adcs"], "focus": true},
+
+      {"note": "4 · Certificate theft. The relayed enrolment succeeds and the CA issues a client-auth certificate for DC-02$ (saved as DC-02.pfx). A certificate is a long-lived credential that survives password resets.",
+       "show": ["z4", "cert", "e6"], "highlight": ["cert"], "focus": true},
+
+      {"note": "PKINIT + DCSync setup. certipy authenticates with the certificate (PKINIT) and recovers the DC-02$ NT hash. Because DC-02$ is a domain controller, it holds directory replication rights — the key to DCSync.",
+       "show": ["hash2", "dcsync", "e7", "e8"], "highlight": ["hash2", "dcsync"], "focus": true},
+
+      {"note": "5a · DCSync to Domain Admin. Acting as DC-02$, secretsdump replicates secrets from DC-01 (DRSUAPI, T1003.006) and dumps the Administrator NT hash — full domain compromise.",
+       "show": ["z5", "dc1", "admin", "e9", "e10"], "highlight": ["dc1", "admin"], "focus": true},
+
+      {"note": "5b · Impact — objective met. Pass-the-hash as Administrator (wmiexec) writes and reads back C:\\flag.txt on BOTH domain controllers. Pwn3d on DC-01 and DC-02.",
+       "show": ["flag1", "flag2", "e11", "e12"], "highlight": ["flag1", "flag2"], "focus": true},
+
+      {"note": "Full chain: no creds -> PetitPotam coercion -> NTLM relay to AD CS (ESC8) -> DC-02$ certificate -> PKINIT hash -> DCSync -> Domain Admin -> flag on both DCs. Break it with: HTTPS + Extended Protection (EPA) on AD CS enrolment (or disable HTTP/Web Enrolment), patch/limit coercion (PetitPotam), enforce LDAP/SMB signing and channel binding, and tier the CA away from DCs.",
+       "show": [], "highlight": [], "focus": true}
+    ]
+  }
+}

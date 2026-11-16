@@ -1,0 +1,183 @@
+{
+  "zones": [
+    {"id": "zmyth_in",  "x": 400,  "y": 100, "w": 640,  "h": 190, "label": "“Trusted” — your side",            "color": "#34d399"},
+    {"id": "zmyth_out", "x": 1120, "y": 100, "w": 640,  "h": 190, "label": "“Hostile” — the Internet",         "color": "#f87171"},
+
+    {"id": "z_real",    "x": 30,   "y": 460, "w": 2340, "h": 470, "label": "Every hop is hostile, unowned, or unverifiable", "color": "#fb923c"},
+
+    {"id": "zr_dev",    "x": 60,   "y": 500, "w": 300,  "h": 400, "label": "1 · Your device",     "color": "#93c5fd"},
+    {"id": "zr_lan",    "x": 390,  "y": 500, "w": 300,  "h": 400, "label": "2 · Local network",   "color": "#c084fc"},
+    {"id": "zr_cpe",    "x": 720,  "y": 500, "w": 300,  "h": 400, "label": "3 · CPE / router",    "color": "#f472b6"},
+    {"id": "zr_isp",    "x": 1050, "y": 500, "w": 300,  "h": 400, "label": "4 · Your ISP",        "color": "#fbbf24"},
+    {"id": "zr_tr",     "x": 1380, "y": 500, "w": 300,  "h": 400, "label": "5 · Transit / IXP",   "color": "#f87171"},
+    {"id": "zr_cdn",    "x": 1710, "y": 500, "w": 300,  "h": 400, "label": "6 · CDN / DNS",       "color": "#2dd4bf"},
+    {"id": "zr_dst",    "x": 2040, "y": 500, "w": 300,  "h": 400, "label": "7 · Destination",     "color": "#a78bfa"}
+  ],
+
+  "nodes": [
+    {"id": "h1", "type": "process", "x": 1080, "y": 40,  "label": "THE DIAGRAM WE DRAW",    "accent": "#34d399"},
+    {"id": "h2", "type": "process", "x": 1200, "y": 400, "label": "WHAT IS ACTUALLY THERE", "accent": "#f87171"},
+
+    {"id": "m_dev", "type": "laptop",    "x": 520,  "y": 200, "label": "Your laptop",  "disp": "friendly"},
+    {"id": "m_sw",  "type": "switch",    "x": 720,  "y": 200, "label": "Switch / AP",  "disp": "friendly"},
+    {"id": "m_fw",  "type": "firewall",  "x": 920,  "y": 200, "label": "Firewall",     "disp": "friendly",
+     "notes": "The single point where trust is assumed to change. Everything behind it is treated as safe by default — which is the assumption this diagram exists to challenge."},
+    {"id": "m_net", "type": "internet",  "x": 1290, "y": 200, "label": "The Internet", "disp": "adversary", "effects": ["suspicious"]},
+    {"id": "m_web", "type": "webserver", "x": 1580, "y": 200, "label": "Web server",   "disp": "unknown"},
+
+    {"id": "r_dev",   "type": "laptop",     "x": 160,  "y": 620, "label": "Your laptop",        "dev": "wks-01", "ip": "192.168.1.34", "disp": "neutral",
+     "notes": "The only asset here you actually own and control — and even that is partial. Firmware, drivers, the OS and every installed app are third-party code you are trusting on reputation."},
+    {"id": "r_mal",   "type": "malware",    "x": 270,  "y": 800, "label": "Untrusted code",     "family": "ads · scripts · apps", "disp": "unknown", "effects": ["vulnerable"],
+     "notes": "Hostile or unverified code already runs INSIDE the supposedly trusted zone: browser JavaScript from anywhere, ad networks, extensions, auto-updating apps, npm/pip dependencies. The perimeter was crossed before the first packet left."},
+
+    {"id": "r_ap",    "type": "wifi",       "x": 540,  "y": 620, "label": "Wi-Fi AP / switch",  "dev": "ap-01", "disp": "neutral",
+     "notes": "Shared broadcast medium. You do not control who else associates, what firmware the AP runs, or whether the SSID you joined is the real one."},
+    {"id": "r_iot",   "type": "iot",        "x": 470,  "y": 790, "label": "Smart TV",           "disp": "unknown", "effects": ["vulnerable"],
+     "notes": "Unpatchable, vendor-controlled, phones home constantly, sits on the same flat network as everything else. It is 'inside' — that is exactly the problem."},
+    {"id": "r_guest", "type": "phone",      "x": 615,  "y": 790, "label": "Guest phone",        "disp": "unknown",
+     "notes": "A device with unknown patch level, unknown apps and unknown history, granted the same network position as your laptop."},
+
+    {"id": "r_cpe",   "type": "router",     "x": 870,  "y": 620, "label": "ISP router / CPE",   "ip": "192.168.1.1", "disp": "unknown", "effects": ["vulnerable"],
+     "notes": "Closed vendor firmware you cannot audit, cannot fully patch and often cannot replace. Historically the single most reliably compromised device in any home or small office."},
+    {"id": "r_acs",   "type": "mgmtserver", "x": 870,  "y": 790, "label": "ISP remote mgmt",    "disp": "unknown",
+     "notes": "TR-069 / ACS. A third party holds administrative control of the device you think is your boundary, and can reconfigure it without asking you."},
+
+    {"id": "r_isp",   "type": "router",     "x": 1200, "y": 620, "label": "ISP edge router",    "disp": "neutral",
+     "notes": "Sees every packet you send. Logs it, may be legally compelled to retain it, and can shape, block or redirect it."},
+    {"id": "r_dns",   "type": "server",     "x": 1200, "y": 790, "label": "ISP DNS resolver",   "disp": "unknown",
+     "notes": "Resolves the names your trust decisions are built on. If it lies, everything downstream inherits the lie — unless you moved resolution to a different third party you also cannot audit."},
+
+    {"id": "r_ix",    "type": "router",     "x": 1530, "y": 620, "label": "Transit / IXP",      "disp": "unknown", "effects": ["suspicious"],
+     "notes": "Your traffic crosses networks operated by strangers, in jurisdictions you did not choose, over routes decided by BGP — a protocol whose trust model is 'other operators are probably honest'."},
+    {"id": "r_asn",   "type": "asn",        "x": 1530, "y": 790, "label": "Other people's ASNs", "asnum": "AS?????", "disp": "unknown",
+     "notes": "You cannot enumerate them in advance, they change per-flow and per-day, and none of them have any obligation to you."},
+
+    {"id": "r_cdn",   "type": "cdn",        "x": 1860, "y": 620, "label": "CDN edge",           "provider": "third party", "disp": "neutral",
+     "notes": "Terminates TLS on behalf of the site you are visiting. It sees plaintext. You never agreed anything with it."},
+    {"id": "r_3p",    "type": "webserver",  "x": 1860, "y": 790, "label": "Third-party code",   "dns": "cdn.example.net", "disp": "unknown", "effects": ["vulnerable"],
+     "notes": "The page you load pulls scripts from origins the site operator does not control either. Compromise any one of them and the code runs in your browser, back in zone 1."},
+
+    {"id": "r_web",   "type": "webserver",  "x": 2190, "y": 620, "label": "Destination server", "dns": "app.example.com", "disp": "unknown",
+     "notes": "The thing you wanted to reach. Its security posture is entirely unknown to you and entirely outside your control."},
+    {"id": "r_own",   "type": "org",        "x": 2190, "y": 790, "label": "Someone else's org", "category": "unknown to you", "disp": "unknown",
+     "notes": "Their patching, their staff, their suppliers, their breach history. You are trusting an organisation, not a server."},
+
+    {"id": "r_alt",   "type": "wifi",       "x": 160,  "y": 1120, "label": "Mobile data / VPN", "disp": "unknown",
+     "notes": "The device is rarely single-homed. Cellular, tethering, VPN splits, Bluetooth and USB all provide paths that never touch the boundary you drew. The perimeter is optional from the endpoint's point of view."},
+
+    {"id": "t_actor", "type": "threatactor", "x": 660,  "y": 1060, "label": "Opportunistic attacker",
+     "category": "criminal", "sophistication": "minimal", "disp": "adversary",
+     "notes": "Does not need to 'get past the firewall'. Scans for the exposed CPE, the unpatched IoT device, the guest phone — all of which are already inside the trusted zone."},
+    {"id": "t_state", "type": "threatactor", "x": 1800, "y": 1010, "label": "Network-level adversary",
+     "category": "nation-state", "sophistication": "advanced", "disp": "adversary",
+     "notes": "Operates on the segments you assumed were neutral plumbing: route hijack, resolver tampering, passive collection at transit. No perimeter is crossed because none is in the way."}
+  ],
+
+  "edges": [
+    {"id": "me1", "a": "m_dev", "b": "m_sw",  "label": "",              "style": "solid",  "anim": false, "arrows": "none"},
+    {"id": "me2", "a": "m_sw",  "b": "m_fw",  "label": "",              "style": "solid",  "anim": false, "arrows": "none"},
+    {"id": "me3", "a": "m_fw",  "b": "m_net", "label": "the perimeter", "style": "solid",  "anim": true,  "arrows": "both"},
+    {"id": "me4", "a": "m_net", "b": "m_web", "label": "",              "style": "solid",  "anim": false, "arrows": "none"},
+
+    {"id": "re1", "a": "r_dev", "b": "r_ap",  "label": "",       "style": "solid", "anim": true, "arrows": "both"},
+    {"id": "re2", "a": "r_ap",  "b": "r_cpe", "label": "",       "style": "solid", "anim": true, "arrows": "both"},
+    {"id": "re3", "a": "r_cpe", "b": "r_isp", "label": "",       "style": "solid", "anim": true, "arrows": "both"},
+    {"id": "re4", "a": "r_isp", "b": "r_ix",  "label": "",       "style": "solid", "anim": true, "arrows": "both"},
+    {"id": "re5", "a": "r_ix",  "b": "r_cdn", "label": "",       "style": "solid", "anim": true, "arrows": "both"},
+    {"id": "re6", "a": "r_cdn", "b": "r_web", "label": "",       "style": "solid", "anim": true, "arrows": "both"},
+
+    {"id": "rl1", "a": "r_dev", "b": "r_mal",   "label": "executes",   "style": "dotted", "anim": false, "arrows": "none"},
+    {"id": "rl2", "a": "r_ap",  "b": "r_iot",   "label": "",           "style": "solid",  "anim": false, "arrows": "none"},
+    {"id": "rl3", "a": "r_ap",  "b": "r_guest", "label": "",           "style": "dashed", "anim": false, "arrows": "none"},
+    {"id": "rl4", "a": "r_cpe", "b": "r_acs",   "label": "TR-069",     "style": "dashed", "anim": false, "arrows": "both"},
+    {"id": "rl5", "a": "r_isp", "b": "r_dns",   "label": "DNS",        "style": "solid",  "anim": false, "arrows": "both"},
+    {"id": "rl6", "a": "r_ix",  "b": "r_asn",   "label": "",           "style": "dotted", "anim": false, "arrows": "none"},
+    {"id": "rl7", "a": "r_cdn", "b": "r_3p",    "label": "",           "style": "solid",  "anim": false, "arrows": "none"},
+    {"id": "rl8", "a": "r_web", "b": "r_own",   "label": "",           "style": "dotted", "anim": false, "arrows": "none"},
+
+    {"id": "ra1", "a": "r_dev", "b": "r_alt", "label": "",                    "style": "dashed", "anim": false, "arrows": "none"},
+    {"id": "ra2", "a": "r_alt", "b": "r_ix",  "label": "bypasses your boundary", "style": "dashed", "anim": true, "arrows": "end"},
+
+    {"id": "rt1", "a": "t_actor", "b": "r_iot", "label": "exploits",       "style": "dotted", "anim": false, "arrows": "end"},
+    {"id": "rt2", "a": "t_actor", "b": "r_cpe", "label": "default creds",  "style": "dotted", "anim": false, "arrows": "end"},
+    {"id": "rt3", "a": "t_state", "b": "r_ix",  "label": "route hijack",   "style": "dotted", "anim": false, "arrows": "end"},
+    {"id": "rt4", "a": "t_state", "b": "r_dns", "label": "resolver tamper","style": "dotted", "anim": false, "arrows": "end"}
+  ],
+
+  "journey": {
+    "steps": [
+      {
+        "note": "This is how almost everyone draws it. A trusted inside, a hostile outside, and one boundary between them. Cross the firewall and you leave safety behind.",
+        "show": ["h1", "zmyth_in", "zmyth_out", "m_dev", "m_sw", "m_fw", "m_net", "m_web", "me1", "me2", "me3", "me4"],
+        "highlight": ["zmyth_in", "zmyth_out"],
+        "focus": true
+      },
+      {
+        "note": "The whole model rests on one claim: everything left of the firewall is non-hostile, everything right of it is hostile, and you traverse the safe part to reach the dangerous part. Two trust levels, one boundary. Tidy — and wrong.",
+        "show": [],
+        "highlight": ["m_fw", "me3"],
+        "focus": true
+      },
+      {
+        "note": "Redraw it honestly and the boundary disappears. Start at the endpoint. Your laptop is the only thing here you own — and it already executes code from strangers all day: browser JavaScript, ad networks, extensions, auto-updating apps, package dependencies. Hostile code is inside zone 1 before a single packet leaves.",
+        "show": ["h2", "z_real", "zr_dev", "r_dev", "r_mal", "rl1"],
+        "highlight": ["r_dev", "r_mal"],
+        "focus": true
+      },
+      {
+        "note": "The 'internal' network. A shared radio medium you do not control, an unpatchable smart TV, and a guest phone with unknown history — all given the same network position as your laptop. Being inside is not a property that makes something safe.",
+        "show": ["zr_lan", "r_ap", "r_iot", "r_guest", "re1", "rl2", "rl3"],
+        "highlight": ["r_ap", "r_iot", "r_guest"],
+        "focus": true
+      },
+      {
+        "note": "The device you call your boundary runs closed vendor firmware you cannot audit or fully patch — and your ISP holds admin control of it over TR-069. Your perimeter is administered by a third party.",
+        "show": ["zr_cpe", "r_cpe", "r_acs", "re2", "rl4"],
+        "highlight": ["r_cpe", "r_acs"],
+        "focus": true
+      },
+      {
+        "note": "Your ISP sees every packet, logs it, may be compelled to retain it, and can shape or redirect it. Its resolver answers the name lookups your trust decisions are built on. Neutral plumbing is a comforting way to describe a party with total visibility.",
+        "show": ["zr_isp", "r_isp", "r_dns", "re3", "rl5"],
+        "highlight": ["r_isp", "r_dns"],
+        "focus": true
+      },
+      {
+        "note": "Past the ISP your traffic crosses networks run by strangers, in jurisdictions you did not choose, on routes chosen by BGP — a protocol whose trust model is that other operators are probably honest. You cannot even enumerate these networks in advance.",
+        "show": ["zr_tr", "r_ix", "r_asn", "re4", "rl6"],
+        "highlight": ["r_ix", "r_asn"],
+        "focus": true
+      },
+      {
+        "note": "A CDN you have no relationship with terminates TLS and sees plaintext. The page it serves pulls further code from origins the site operator does not control either — and that code runs back in zone 1, on your device.",
+        "show": ["zr_cdn", "r_cdn", "r_3p", "re5", "rl7"],
+        "highlight": ["r_cdn", "r_3p"],
+        "focus": true
+      },
+      {
+        "note": "Finally the destination: an unknown security posture, run by an organisation whose patching, staff and suppliers are entirely outside your control. Seven segments, and not one of them is a network you can call non-hostile.",
+        "show": ["zr_dst", "r_web", "r_own", "re6", "rl8"],
+        "highlight": ["r_web", "r_own"],
+        "focus": true
+      },
+      {
+        "note": "Now add the adversaries — and notice where they attach. Neither of them crosses your perimeter. One takes the exposed router and the unpatched IoT device that were already inside it; the other works on the transit and resolver segments you assumed were neutral. The boundary was never in the way.",
+        "show": ["t_actor", "t_state", "rt1", "rt2", "rt3", "rt4"],
+        "highlight": ["t_actor", "t_state", "r_iot", "r_cpe", "r_ix", "r_dns"],
+        "focus": true
+      },
+      {
+        "note": "And the endpoint is rarely single-homed anyway. Cellular, tethering, split-tunnel VPN, Bluetooth, USB — every one is a path that never touches the boundary you drew. From the device's point of view, your perimeter is optional.",
+        "show": ["r_alt", "ra1", "ra2"],
+        "highlight": ["r_alt", "r_dev", "r_ix"],
+        "focus": true
+      },
+      {
+        "note": "So the model inverts. There is no non-hostile network to traverse — only segments with different amounts of hostility you cannot verify. Trust stops being a property of where something sits and becomes a property of what you can prove about it: authenticate every endpoint, encrypt end to end, assume the local network is as hostile as the Internet, and treat the device itself as already compromised. That is the whole argument for zero trust, drawn out.",
+        "show": [],
+        "highlight": [],
+        "focus": true
+      }
+    ]
+  }
+}

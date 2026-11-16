@@ -1,0 +1,61 @@
+{
+  "zones": [
+    {"id": "z1", "x": 40,   "y": 110, "w": 300, "h": 540, "label": "Attacker · Azure East US (USA)", "color": "#38bdf8"},
+    {"id": "z2", "x": 380,  "y": 110, "w": 470, "h": 540, "label": "Cloudflare global edge · Anycast", "color": "#f59e0b"},
+    {"id": "z3", "x": 890,  "y": 110, "w": 460, "h": 540, "label": "Target origin · United Kingdom", "color": "#34d399"}
+  ],
+  "nodes": [
+    {"id": "azure", "type": "cloud",       "x": 190,  "y": 205, "label": "Azure — East US", "provider": "Azure East US", "disp": "adversary", "notes": "Attacker VM with large egress. Same as before, but it now hits Cloudflare, not the origin, first."},
+    {"id": "atk",   "type": "threatactor", "x": 190,  "y": 430, "label": "Attacker", "category": "hacker", "sophistication": "advanced", "disp": "adversary", "notes": "Anycast routing sends it to the NEAREST Cloudflare PoP (a few ms away), so it never gets a direct low-latency path to the UK origin."},
+
+    {"id": "waf",   "type": "waf",         "x": 500,  "y": 210, "label": "Cloudflare WAF + DDoS", "disp": "friendly", "notes": "Global edge with Tbps of capacity. WAF rules, rate-limiting, bot management and L3/4+L7 DDoS mitigation filter traffic far from the origin. This is where most of the attacker's traffic is now controlled."},
+    {"id": "cf",    "type": "cdn",         "x": 500,  "y": 430, "label": "Edge cache (Anycast)", "provider": "Cloudflare", "disp": "friendly", "notes": "Cached content is served straight from the PoP nearest the client. For cacheable/static responses the origin is never contacted at all."},
+
+    {"id": "blocked","type": "document",   "x": 740,  "y": 210, "label": "Dropped: attacks / bots / DDoS", "disp": "friendly", "notes": "Malicious and abusive traffic is absorbed and dropped at the edge, before it can consume any origin resource."},
+    {"id": "hit",   "type": "document",    "x": 740,  "y": 430, "label": "Cache HIT — served at edge", "disp": "friendly", "notes": "The majority of requests (for a well-cached site) end here. Speed is set by Cloudflare, not by the target's 1 GbE link."},
+
+    {"id": "fw",    "type": "firewall",    "x": 1010, "y": 205, "label": "UniFi Gateway (origin)", "dev": "udm", "disp": "victim", "effects": ["issue"], "notes": "Same 1 GbE WAN + NAT/port-forward as before — but now only reached by cache-miss / dynamic requests that already passed the WAF. Should be locked to accept ONLY Cloudflare IP ranges."},
+    {"id": "vm",    "type": "webserver",   "x": 1240, "y": 205, "label": "Web VM (origin)", "dev": "web01", "ip": "10.0.0.20", "disp": "victim", "effects": ["issue"], "notes": "4 vCPU, 16 GB RAM, NVMe VHDX. The same CPU/RAM/IO ceilings apply, but to a much smaller, pre-filtered stream."},
+    {"id": "host",  "type": "hypervisor",  "x": 1240, "y": 405, "label": "NVMe VHDX", "dev": "esx01", "disp": "victim", "notes": "Storage ceiling as before — but relieved because cache hits never touch it."},
+
+    {"id": "risk",  "type": "document",    "x": 1010, "y": 430, "label": "Harden: allow only Cloudflare IPs", "disp": "victim", "effects": ["vulnerable"], "notes": "The whole model depends on hiding the origin. If the origin IP leaks (DNS history, TLS SANs, email headers, misconfig), an attacker can hit the 1 GbE WAN directly and bypass Cloudflare entirely — back to the un-shielded case. Mitigate with origin allow-listing / Cloudflare Tunnel / mTLS."},
+
+    {"id": "bn",    "type": "document",    "x": 560,  "y": 680, "label": "Control point moves to Cloudflare", "disp": "neutral", "notes": "With a CDN/WAF in front, most of the attacker's experience is now governed by Cloudflare (edge capacity, WAF, rate-limits, cache) instead of the target's 1 GbE link. The origin's ceilings still bound the residual cache-miss/dynamic traffic — but that is a small, filtered fraction, as long as the origin cannot be reached directly."}
+  ],
+  "edges": [
+    {"id": "e0", "a": "azure", "b": "atk",     "label": "hosts",                          "style": "dotted", "anim": false, "arrows": "end"},
+    {"id": "e1", "a": "atk",   "b": "waf",     "label": "requests -> nearest PoP (low RTT)","style": "dashed", "anim": true,  "arrows": "end"},
+    {"id": "e2", "a": "waf",   "b": "blocked", "label": "attacks / DDoS dropped",         "style": "dashed", "anim": true,  "arrows": "end"},
+    {"id": "e3", "a": "waf",   "b": "cf",      "label": "clean traffic",                  "style": "dashed", "anim": true,  "arrows": "end"},
+    {"id": "e4", "a": "cf",    "b": "hit",     "label": "cache HIT (most traffic)",       "style": "dashed", "anim": true,  "arrows": "end"},
+    {"id": "e5", "a": "cf",    "b": "fw",      "label": "MISS / dynamic -> origin",       "style": "dashed", "anim": true,  "arrows": "end"},
+    {"id": "e6", "a": "fw",    "b": "vm",      "label": "DNAT tcp/443 -> web01",          "style": "dashed", "anim": false, "arrows": "end"},
+    {"id": "e7", "a": "vm",    "b": "host",    "label": "VHDX on NVMe",                   "style": "dotted", "anim": false, "arrows": "end"},
+    {"id": "e8", "a": "atk",   "b": "fw",      "label": "bypass if origin IP leaks",      "style": "dotted", "anim": false, "arrows": "end"},
+    {"id": "e9", "a": "fw",    "b": "risk",    "label": "so: allow-list Cloudflare",      "style": "dotted", "anim": false, "arrows": "end"}
+  ],
+  "journey": {
+    "steps": [
+      {"note": "Same attacker in Azure East US, same UK target — but now Cloudflare's CDN/WAF sits in front of the firewall as the public entry point. Let's see how that changes where the speed is controlled.",
+       "show": ["z1", "azure", "atk", "e0"], "highlight": ["azure", "atk"], "focus": true},
+
+      {"note": "Anycast changes the first hop. The attacker's requests land on the NEAREST Cloudflare PoP (a few ms away, in the US), which has Tbps of capacity. The attacker no longer gets a direct pipe to the UK origin at all.",
+       "show": ["z2", "waf", "e1"], "highlight": ["waf"], "focus": true},
+
+      {"note": "Filtering at the edge. WAF rules, rate-limiting, bot management and DDoS mitigation run here — attacks, bots and volumetric floods are absorbed and dropped far from the origin. Most of the attacker's traffic is now controlled by Cloudflare, not the target.",
+       "show": ["blocked", "e2"], "highlight": ["waf", "blocked"], "focus": true},
+
+      {"note": "Caching at the edge. Clean requests hit the edge cache; for a well-cached site the majority are served straight from the PoP. Those responses never touch the UK origin, so the target's 1 GbE link is irrelevant to them.",
+       "show": ["cf", "hit", "e3", "e4"], "highlight": ["cf", "hit"], "focus": true},
+
+      {"note": "Only the residue reaches the UK. Cache-misses and dynamic requests are fetched from the origin over Cloudflare's optimised backbone — the same UniFi 1 GbE WAN, NAT/port-forward and web VM as before, but now a small, pre-filtered stream.",
+       "show": ["z3", "fw", "vm", "host", "e5", "e6", "e7"], "highlight": ["fw", "vm"], "focus": true},
+
+      {"note": "The ceilings still exist — for that residue. The origin's 1 GbE / firewall / CPU / NVMe limits still bound cache-miss + dynamic traffic. But the control point for the attacker's overall experience has moved to Cloudflare: edge capacity, WAF and rate-limits decide most of it.",
+       "show": ["bn"], "highlight": ["bn", "fw", "vm"], "focus": true},
+
+      {"note": "The catch: it only works if the origin stays hidden. If the origin IP leaks (DNS history, TLS SANs, email headers, old records) and the WAN is reachable, an attacker hits the 1 GbE directly and bypasses Cloudflare — straight back to the un-shielded, target-bound case. Lock the origin to Cloudflare IP ranges (or use Cloudflare Tunnel / mTLS).",
+       "show": ["risk", "e8", "e9"], "highlight": ["risk"], "focus": true}
+    ]
+  }
+}
