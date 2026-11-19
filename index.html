@@ -79,7 +79,7 @@
   #dragGhost{
     position:fixed; z-index:100; pointer-events:none; display:none;
     background:var(--card); border:1px solid var(--border2); border-radius:12px;
-    padding:10px 16px; display:none; align-items:center; gap:9px;
+    padding:10px 16px; align-items:center; gap:9px;
     box-shadow:var(--shadow); font-size:12px; color:var(--text); font-weight:600;
   }
 
@@ -572,11 +572,11 @@
 <script>
 "use strict";
 /* =============================================================
-   NetDraw — dark-mode network diagram editor
+   NetDraw — network, threat & flow diagram editor
    ============================================================= */
 
 const NW = 104, NH = 74;          // node card size
-const GRID = 26, SNAP = 13;       // grid spacing / snap step
+const SNAP = 13;                  // grid snap step
 const LS_KEY = "netdraw.doc.v1";
 
 /* ---------- device catalog ---------- */
@@ -1038,12 +1038,12 @@ function nodeH(n){
 }
 
 /* ---------- view transform ---------- */
-function applyView(){
+function applyView(skipSave){
   worldG.setAttribute("transform", `translate(${view.x} ${view.y}) scale(${view.k})`);
   const pat = $("gridPat");
   pat.setAttribute("patternTransform", `translate(${view.x} ${view.y}) scale(${view.k})`);
   $("zoomPct").textContent = Math.round(view.k * 100) + "%";
-  saveSoon();
+  if(!skipSave) saveSoon();
 }
 function toWorld(cx, cy){
   const r = svg.getBoundingClientRect();
@@ -1286,8 +1286,10 @@ let sneakTimer = null;
 function ensureSneak(){
   const has = state.edges.some(e => e.style === "sneakernet");
   if(has && !sneakTimer){
-    // setInterval, not rAF: keeps the walk moving even when the tab is unfocused (matches recording)
+    // setInterval, not rAF: keeps the walk moving during recording even if unfocused,
+    // while skipping idle background ticks when the tab is hidden and not recording.
     sneakTimer = setInterval(() => {
+      if(document.hidden && !rec) return;
       const t = performance.now() / 1000;
       edgesLayer.querySelectorAll(".footsteps").forEach(fs => sneakStep(fs, t));
     }, 33);
@@ -1295,8 +1297,9 @@ function ensureSneak(){
     clearInterval(sneakTimer); sneakTimer = null;
   }
 }
-function renderEdge(e){
-  const a = nodeById(e.a), b = nodeById(e.b);
+function renderEdge(e, nodeMap){
+  const a = nodeMap ? nodeMap.get(e.a) : nodeById(e.a);
+  const b = nodeMap ? nodeMap.get(e.b) : nodeById(e.b);
   if(!a || !b) return null;
   const th = curTheme();
   const geo = edgeGeom(a, b);
@@ -1411,19 +1414,23 @@ function dimGroup(g){
   g.querySelectorAll(".vis.anim").forEach(x => x.classList.remove("anim"));
 }
 function renderAll(){
-  zonesLayer.innerHTML = "";
-  for(const z of state.zones){ const s = elemState(z.id); if(s === "hidden") continue; const g = renderZone(z); if(s === "dim") dimGroup(g); zonesLayer.appendChild(g); }
-  edgesLayer.innerHTML = "";
+  const nodeMap = new Map(state.nodes.map(n => [n.id, n]));
+  const zFrag = document.createDocumentFragment();
+  for(const z of state.zones){ const s = elemState(z.id); if(s === "hidden") continue; const g = renderZone(z); if(s === "dim") dimGroup(g); zFrag.appendChild(g); }
+  zonesLayer.replaceChildren(zFrag);
+  const eFrag = document.createDocumentFragment();
   for(const e of state.edges){
     if(elemState(e.a) === "hidden" || elemState(e.b) === "hidden") continue;
     const s = elemState(e.id);
     if(s === "hidden") continue;
-    const g = renderEdge(e); if(!g) continue;
+    const g = renderEdge(e, nodeMap); if(!g) continue;
     if(s === "dim") dimGroup(g);
-    edgesLayer.appendChild(g);
+    eFrag.appendChild(g);
   }
-  nodesLayer.innerHTML = "";
-  for(const n of state.nodes){ const s = elemState(n.id); if(s === "hidden") continue; const g = renderNode(n); if(s === "dim") dimGroup(g); nodesLayer.appendChild(g); }
+  edgesLayer.replaceChildren(eFrag);
+  const nFrag = document.createDocumentFragment();
+  for(const n of state.nodes){ const s = elemState(n.id); if(s === "hidden") continue; const g = renderNode(n); if(s === "dim") dimGroup(g); nFrag.appendChild(g); }
+  nodesLayer.replaceChildren(nFrag);
   updateProps();
   updateToolbar();
   ensureSneak();
@@ -1449,7 +1456,7 @@ function tweenView(tx, ty, tk, ms){
   const tick = () => {
     const u = Math.min(1, (performance.now()-t0)/ms), e = ease(u);
     view.x = s.x + (tx-s.x)*e; view.y = s.y + (ty-s.y)*e; view.k = s.k + (tk-s.k)*e;
-    applyView();
+    applyView(u < 1);
     if(u < 1) viewTween = requestAnimationFrame(tick); else viewTween = null;
   };
   viewTween = requestAnimationFrame(tick);
@@ -1764,8 +1771,15 @@ function markLinkTarget(id){
   if(curLinkTarget === id) return;
   const prev = curLinkTarget;
   curLinkTarget = id;
-  // repaint so the previous target loses its highlight (temp edge layer is untouched)
-  if(prev !== null) renderAll();
+  if(prev !== null){
+    const pn = nodeById(prev);
+    const pg = nodesLayer.querySelector(`g.nodeg[data-node="${CSS.escape(prev)}"]`);
+    if(pn && pg){
+      const next = renderNode(pn);
+      if(elemState(pn.id) === "dim") dimGroup(next);
+      pg.replaceWith(next);
+    }
+  }
   if(id === null) return;
   const g = nodesLayer.querySelector(`g.nodeg[data-node="${CSS.escape(id)}"]`);
   const card = g && g.querySelector(".card");
@@ -1788,6 +1802,33 @@ function isDoubleClick(key, e){
               Math.hypot(e.clientX - lastDown.x, e.clientY - lastDown.y) < 8;
   lastDown = dbl ? {key:null, t:0, x:0, y:0} : {key, t:now, x:e.clientX, y:e.clientY};
   return dbl;
+}
+
+/* ---------- incremental drag helpers ---------- */
+function bindDragNodes(nodes, wp){
+  return nodes.map(n => ({
+    n, ox:n.x - wp.x, oy:n.y - wp.y, w:nodeW(n), h:nodeH(n),
+    el:nodesLayer.querySelector(`g.nodeg[data-node="${CSS.escape(n.id)}"]`)
+  }));
+}
+function bindDragEdges(movedIds){
+  const nodeMap = new Map(state.nodes.map(n => [n.id, n]));
+  const edges = [];
+  for(const e of state.edges){
+    if(!movedIds.has(e.a) && !movedIds.has(e.b)) continue;
+    const g = edgesLayer.querySelector(`g.edge[data-edge="${CSS.escape(e.id)}"]`);
+    if(g) edges.push({e, el:g});
+  }
+  return {nodeMap, edges};
+}
+function refreshDragEdges(d){
+  for(const item of d.edges){
+    const next = renderEdge(item.e, d.nodeMap);
+    if(!next) continue;
+    if(elemState(item.e.id) === "dim") dimGroup(next);
+    item.el.replaceWith(next);
+    item.el = next;
+  }
 }
 
 svg.addEventListener("pointerdown", e => {
@@ -1869,9 +1910,9 @@ svg.addEventListener("pointerdown", e => {
       renderAll();
     }
     // begin move of all selected nodes
-    const parts = state.nodes.filter(n => selection.has(n.id))
-      .map(n => ({n, ox:n.x - wp.x, oy:n.y - wp.y}));
-    drag = {kind:"move", parts, moved:false};
+    const parts = bindDragNodes(state.nodes.filter(n => selection.has(n.id)), wp);
+    const {nodeMap, edges} = bindDragEdges(new Set(parts.map(p => p.n.id)));
+    drag = {kind:"move", parts, nodeMap, edges, moved:false};
     svg.setPointerCapture(e.pointerId);
     return;
   }
@@ -1885,9 +1926,11 @@ svg.addEventListener("pointerdown", e => {
   }
 
   if(zHandle && zoneG){
-    const z = zoneById(zoneG.getAttribute("data-zone"));
+    const zid = zoneG.getAttribute("data-zone");
+    const z = zoneById(zid);
     const c = zHandle.getAttribute("data-zhandle");
     drag = {kind:"zresize", z,
+      zEl:zonesLayer.querySelector(`g.zoneg[data-zone="${CSS.escape(zid)}"]`),
       fx: c.includes("w") ? z.x + z.w : z.x,     // fixed (opposite) corner
       fy: c.includes("n") ? z.y + z.h : z.y,
       moved:false};
@@ -1910,8 +1953,11 @@ svg.addEventListener("pointerdown", e => {
       renderAll();
     }
     const z = zoneById(id);
-    const members = state.nodes.filter(n => inZone(n, z)).map(n => ({n, ox:n.x - wp.x, oy:n.y - wp.y}));
-    drag = {kind:"zmove", z, ox:z.x - wp.x, oy:z.y - wp.y, members, moved:false};
+    const members = bindDragNodes(state.nodes.filter(n => inZone(n, z)), wp);
+    const {nodeMap, edges} = bindDragEdges(new Set(members.map(p => p.n.id)));
+    drag = {kind:"zmove", z,
+      zEl:zonesLayer.querySelector(`g.zoneg[data-zone="${CSS.escape(id)}"]`),
+      ox:z.x - wp.x, oy:z.y - wp.y, members, nodeMap, edges, moved:false};
     svg.setPointerCapture(e.pointerId);
     return;
   }
@@ -1936,22 +1982,28 @@ window.addEventListener("pointermove", e => {
   if(drag.kind === "pan"){
     view.x = drag.vx + (e.clientX - drag.sx);
     view.y = drag.vy + (e.clientY - drag.sy);
-    applyView();
+    applyView(true);
   }
   else if(drag.kind === "move"){
     drag.moved = true;
-    let snappedLane = null;
+    let changed = false, snappedLane = null;
     for(const p of drag.parts){
       const ls = laneSnapPoint(snap(wp.x + p.ox), snap(wp.y + p.oy));
-      p.n.x = ls.x; p.n.y = ls.y;
+      if(p.n.x !== ls.x || p.n.y !== ls.y){
+        p.n.x = ls.x; p.n.y = ls.y;
+        if(p.el) p.el.setAttribute("transform", `translate(${p.n.x - p.w/2},${p.n.y - p.h/2})`);
+        changed = true;
+      }
       if(ls.lane && !snappedLane) snappedLane = ls.lane;
     }
-    renderAll();
-    tempLayer.innerHTML = "";
-    if(snappedLane){
-      tempLayer.appendChild(el("rect", {x:snappedLane.x, y:snappedLane.y, width:snappedLane.w, height:snappedLane.h,
-        fill:snappedLane.color, "fill-opacity":.05, stroke:snappedLane.color, "stroke-opacity":.45,
-        "stroke-width":1.2, "stroke-dasharray":"5 4", "pointer-events":"none"}));
+    if(changed){
+      refreshDragEdges(drag);
+      tempLayer.innerHTML = "";
+      if(snappedLane){
+        tempLayer.appendChild(el("rect", {x:snappedLane.x, y:snappedLane.y, width:snappedLane.w, height:snappedLane.h,
+          fill:snappedLane.color, "fill-opacity":.05, stroke:snappedLane.color, "stroke-opacity":.45,
+          "stroke-width":1.2, "stroke-dasharray":"5 4", "pointer-events":"none"}));
+      }
     }
   }
   else if(drag.kind === "link"){
@@ -1962,17 +2014,31 @@ window.addEventListener("pointermove", e => {
   }
   else if(drag.kind === "zmove"){
     drag.moved = true;
-    drag.z.x = snap(wp.x + drag.ox); drag.z.y = snap(wp.y + drag.oy);
-    for(const p of drag.members){ p.n.x = snap(wp.x + p.ox); p.n.y = snap(wp.y + p.oy); }
-    renderAll();
+    const zx = snap(wp.x + drag.ox), zy = snap(wp.y + drag.oy);
+    let changed = drag.z.x !== zx || drag.z.y !== zy;
+    drag.z.x = zx; drag.z.y = zy;
+    for(const p of drag.members){
+      const nx = snap(wp.x + p.ox), ny = snap(wp.y + p.oy);
+      if(p.n.x !== nx || p.n.y !== ny){
+        p.n.x = nx; p.n.y = ny;
+        if(p.el) p.el.setAttribute("transform", `translate(${p.n.x - p.w/2},${p.n.y - p.h/2})`);
+        changed = true;
+      }
+    }
+    if(changed){
+      if(drag.zEl){ const nextZ = renderZone(drag.z); drag.zEl.replaceWith(nextZ); drag.zEl = nextZ; }
+      refreshDragEdges(drag);
+    }
   }
   else if(drag.kind === "zresize"){
     drag.moved = true;
     const x1 = snap(wp.x), y1 = snap(wp.y);
-    drag.z.x = Math.min(drag.fx, x1); drag.z.y = Math.min(drag.fy, y1);
-    drag.z.w = Math.max(90, Math.abs(x1 - drag.fx));
-    drag.z.h = Math.max(70, Math.abs(y1 - drag.fy));
-    renderAll();
+    const nx = Math.min(drag.fx, x1), ny = Math.min(drag.fy, y1);
+    const nw = Math.max(90, Math.abs(x1 - drag.fx)), nh = Math.max(70, Math.abs(y1 - drag.fy));
+    if(drag.z.x !== nx || drag.z.y !== ny || drag.z.w !== nw || drag.z.h !== nh){
+      drag.z.x = nx; drag.z.y = ny; drag.z.w = nw; drag.z.h = nh;
+      if(drag.zEl){ const nextZ = renderZone(drag.z); drag.zEl.replaceWith(nextZ); drag.zEl = nextZ; }
+    }
   }
   else if(drag.kind === "zdraw"){
     drag.x1 = wp.x; drag.y1 = wp.y;
@@ -2000,7 +2066,10 @@ window.addEventListener("pointerup", e => {
   const d = drag; drag = null;
   svg.classList.remove("panning");
 
-  if(d.kind === "move" || d.kind === "zmove" || d.kind === "zresize"){
+  if(d.kind === "pan"){
+    saveSoon();
+  }
+  else if(d.kind === "move" || d.kind === "zmove" || d.kind === "zresize"){
     if(d.kind === "move") tempLayer.innerHTML = "";
     if(d.moved) commit();
   }
