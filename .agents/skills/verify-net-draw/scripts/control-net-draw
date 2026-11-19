@@ -423,19 +423,6 @@ async function withPage(inst, fn) {
   }
 }
 
-async function ensureDownloadsConfigured(inst) {
-  const browserCdp = await CDPClient.connect(inst.browserWsUrl);
-  try {
-    await browserCdp.send("Browser.setDownloadBehavior", {
-      behavior: "allow",
-      downloadPath: inst.downloadsDir,
-      eventsEnabled: true,
-    });
-  } finally {
-    browserCdp.close();
-  }
-}
-
 /* ---------- DOM / ARIA point lookup (read-only) ---------- */
 function browserFindTargetPoint({ selector, role, name, nth }) {
   function collapseWs(s) {
@@ -1179,7 +1166,11 @@ async function cmdPress(flags) {
 async function cmdUpload(flags) {
   const inst = loadInstance(flags.run || process.env.NET_DRAW_RUN);
   const selector = flags.selector || "#fileInput";
-  const filePath = flags.file ? path.resolve(String(flags.file)) : null;
+  const rawFile = flags.file ? String(flags.file) : null;
+  let filePath = rawFile ? path.resolve(rawFile) : null;
+  if (rawFile && !path.isAbsolute(rawFile) && (!filePath || !fs.existsSync(filePath))) {
+    filePath = path.resolve(inst.repoRoot, rawFile);
+  }
   if (!filePath || !fs.existsSync(filePath)) {
     fail(`File to upload does not exist: ${filePath}`);
   }
@@ -1602,7 +1593,7 @@ User actions (all dispatch real browser events via CDP):
   fill           --run <id> (--selector <css> | --role <r> --name <n>) --value <text> [--commit enter|blur|none]
   select         --run <id> --selector <css> --value <optionValue>
   press          --run <id> --key <key> [--ctrl] [--shift] [--alt] [--meta]
-  upload         --run <id> [--selector #fileInput] --file <absPath>
+  upload         --run <id> [--selector #fileInput] --file <path>
   wait-download  --run <id> [--match <substr>] [--timeout-ms 15000]
   reload         --run <id> [--wait-save-ms 450]
   resize         --run <id> --width <px> --height <px>

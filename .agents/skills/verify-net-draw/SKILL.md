@@ -133,7 +133,7 @@ Cleanup rules enforced by `stop`:
 .agents/skills/verify-net-draw/scripts/control-net-draw fill          --run <id> (--selector <css> | --role <r> --name <n>) --value <text> [--commit enter|blur|none]
 .agents/skills/verify-net-draw/scripts/control-net-draw select        --run <id> --selector <css> --value <optionValue>
 .agents/skills/verify-net-draw/scripts/control-net-draw press         --run <id> --key <key> [--ctrl] [--shift] [--alt] [--meta]
-.agents/skills/verify-net-draw/scripts/control-net-draw upload        --run <id> [--selector '#fileInput'] --file <absPath>
+.agents/skills/verify-net-draw/scripts/control-net-draw upload        --run <id> [--selector '#fileInput'] --file <path>
 .agents/skills/verify-net-draw/scripts/control-net-draw wait-download --run <id> [--match <substr>] [--timeout-ms 15000]
 .agents/skills/verify-net-draw/scripts/control-net-draw reload        --run <id> [--wait-save-ms 450]
 .agents/skills/verify-net-draw/scripts/control-net-draw resize        --run <id> --width <px> --height <px>
