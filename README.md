@@ -22,6 +22,20 @@ python3 -m http.server 4173 --bind 127.0.0.1
 
 Then open `http://127.0.0.1:4173/`.
 
+## Verify locally
+
+Validate all bundled examples against `index.html`:
+
+```bash
+scripts/control-net-draw validate-examples
+```
+
+Run an isolated headless Chrome health check (requires Node.js and Chrome/Chromium):
+
+```bash
+scripts/control-net-draw start --run smoke && scripts/control-net-draw doctor --run smoke && scripts/control-net-draw stop --run smoke
+```
+
 ## Provenance & Copyright
 
 Imported from [https://mr-r3b00t.github.io/net_draw/](https://mr-r3b00t.github.io/net_draw/) (`© 2026 Xservus Limited`). The upstream copyright notice in `index.html` is preserved verbatim; upstream did not publish an explicit open-source license on the hosted page, so no separate license file is added here.

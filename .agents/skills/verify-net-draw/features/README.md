@@ -4,19 +4,19 @@ This directory is the maintained source for verifying the user-facing behavior o
 
 ## Baseline preconditions
 
-- Start an isolated instance with `.agents/skills/verify-net-draw/scripts/control-net-draw start --run <id>` (use a unique `<id>`, shown as `v1` in recipes below).
+- Start an isolated instance with `scripts/control-net-draw start --run <id>` (use a unique `<id>`, shown as `v1` in recipes below).
 - Default viewport is `1440×900`, where all toolbar text labels (`Save`, `Open`, `Examples`, `Journey`) and `#hintbar` are visible.
 - Fresh `localStorage` seeds the built-in sample diagram (`14` nodes `n1`–`n14`, `14` edges `e1`–`e14`, `4` zones `z1`–`z4`, `0` journey steps, `73` palette items).
-- Run `.agents/skills/verify-net-draw/scripts/control-net-draw doctor --run v1` and require `healthy: true` (`servedMatchesDisk: true`, `examplesServed: true`, `browserResponsive: true`).
+- Run `scripts/control-net-draw doctor --run v1` and require `healthy: true` (`servedMatchesDisk: true`, `examplesServed: true`, `browserResponsive: true`).
 - Never drive an instance that was not started by the current verification run.
 
 ## Driving conventions
 
 - Start every recipe from the fresh baseline state unless its `Preconditions:` specify otherwise.
-- Run all browser interactions through `.agents/skills/verify-net-draw/scripts/control-net-draw`. Never mutate `window` globals or `localStorage` directly.
+- Run all browser interactions through `scripts/control-net-draw`. Never mutate `window` globals or `localStorage` directly.
 - Treat every command as literal; substitute only `--run <id>` when using a run ID other than `v1`.
 - Prefer `--role` + `--name` for named HTML buttons/menus and explicit `data-*` / ID selectors (`g.nodeg[data-node="..."]`, `.pitem[data-type="..."]`, `#pLabel`) for SVG canvas items and icon-only controls.
-- Tear down every run with `.agents/skills/verify-net-draw/scripts/control-net-draw stop --run v1`. Cleanup removes `/tmp/net-draw-verify-v1` and leaves `/tmp/net-draw-evidence-v1` intact.
+- Tear down every run with `scripts/control-net-draw stop --run v1`. Cleanup removes `/tmp/net-draw-verify-v1` and leaves `/tmp/net-draw-evidence-v1` intact.
 
 ## Proof and skip reporting
 

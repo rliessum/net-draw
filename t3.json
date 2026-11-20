@@ -13,13 +13,13 @@
     },
     {
       "name": "Verify App",
-      "command": "bash -c 'trap \".agents/skills/verify-net-draw/scripts/control-net-draw stop --run t3-smoke >/dev/null 2>&1 || true\" EXIT; .agents/skills/verify-net-draw/scripts/control-net-draw start --run t3-smoke && .agents/skills/verify-net-draw/scripts/control-net-draw doctor --run t3-smoke'",
+      "command": "bash -c 'trap \"scripts/control-net-draw stop --run t3-smoke >/dev/null 2>&1 || true\" EXIT; scripts/control-net-draw start --run t3-smoke && scripts/control-net-draw doctor --run t3-smoke'",
       "icon": "test",
       "runOnWorktreeCreate": false
     },
     {
       "name": "Validate Examples",
-      "command": ".agents/skills/verify-net-draw/scripts/control-net-draw validate-examples",
+      "command": "scripts/control-net-draw validate-examples",
       "icon": "lint",
       "runOnWorktreeCreate": false
     }

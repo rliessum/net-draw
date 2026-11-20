@@ -9,14 +9,14 @@ NetDraw is a zero-dependency, single-page static web application (`index.html` +
 
 Read [`features/README.md`](./features/README.md) first, then follow the matching recipe in [`features/`](./features/).
 
-> **Why `control-net-draw` instead of T3 `preview_snapshot`:** NetDraw's baseline canvas runs continuous CSS animations (`@keyframes dashflow` on animated links and `@keyframes fxpulse` on node effect halos) inside a large inline `<svg>`. T3's `preview_snapshot` times out after 15,000 ms (`PreviewAutomationTimeoutError`) on this surface. `.agents/skills/verify-net-draw/scripts/control-net-draw` drives an isolated headless Chrome instance directly over Chrome DevTools Protocol (CDP) using Node's built-in `http`, `fetch`, and `WebSocket` — requiring zero `npm install` packages.
+> **Why `scripts/control-net-draw` instead of generic browser snapshot/idle tools:** NetDraw's baseline canvas runs continuous CSS animations (`@keyframes dashflow` on animated links and `@keyframes fxpulse` on node effect halos) inside a large inline `<svg>`. Browser automation tools that wait for animation or layout stability before taking snapshots routinely stall or time out on this surface. `scripts/control-net-draw` drives an isolated headless Chrome instance directly over Chrome DevTools Protocol (CDP) using Node's built-in `http`, `fetch`, and `WebSocket` — requiring zero `npm install` packages.
 
 ## Launch
 
 Pick a unique alphanumeric run ID (for example `v1` or `pr-42`) and start an isolated verification instance from the repository root:
 
 ```bash
-.agents/skills/verify-net-draw/scripts/control-net-draw start --run v1
+scripts/control-net-draw start --run v1
 ```
 
 What `start` does and what "ready" means:
@@ -31,7 +31,7 @@ What `start` does and what "ready" means:
 **Teardown:**
 
 ```bash
-.agents/skills/verify-net-draw/scripts/control-net-draw stop --run v1
+scripts/control-net-draw stop --run v1
 ```
 
 ## Doctor
@@ -39,7 +39,7 @@ What `start` does and what "ready" means:
 Run `doctor` before driving an instance or whenever behavior looks unexpected. It is strictly read-only:
 
 ```bash
-.agents/skills/verify-net-draw/scripts/control-net-draw doctor --run v1
+scripts/control-net-draw doctor --run v1
 ```
 
 `doctor` exits `0` only when all five checks pass:
@@ -52,7 +52,7 @@ Run `doctor` before driving an instance or whenever behavior looks unexpected. I
 
 ## Drive
 
-All interactions go through `.agents/skills/verify-net-draw/scripts/control-net-draw`, which dispatches real CDP mouse, keyboard, file-input, and download events.
+All interactions go through `scripts/control-net-draw`, which dispatches real CDP mouse, keyboard, file-input, and download events.
 
 ### Stable handles in NetDraw
 
@@ -71,19 +71,19 @@ All interactions go through `.agents/skills/verify-net-draw/scripts/control-net-
 
 ```bash
 # Click by role + accessible name or CSS selector
-.agents/skills/verify-net-draw/scripts/control-net-draw click --run v1 --role button --name "Examples"
-.agents/skills/verify-net-draw/scripts/control-net-draw click --run v1 --selector '.pitem[data-type="router"]'
+scripts/control-net-draw click --run v1 --role button --name "Examples"
+scripts/control-net-draw click --run v1 --selector '.pitem[data-type="router"]'
 
 # Double-click a node to open the floating #labelEditor, then rename
-.agents/skills/verify-net-draw/scripts/control-net-draw click --run v1 --selector 'g.nodeg[data-node="n3"]' --double
-.agents/skills/verify-net-draw/scripts/control-net-draw fill --run v1 --selector '#labelEditor' --value "Border Router" --commit enter
+scripts/control-net-draw click --run v1 --selector 'g.nodeg[data-node="n3"]' --double
+scripts/control-net-draw fill --run v1 --selector '#labelEditor' --value "Border Router" --commit enter
 
 # Drag from palette or drag on canvas (canvas pixel offsets from #canvas top-left)
-.agents/skills/verify-net-draw/scripts/control-net-draw drag --run v1 --from-selector '.pitem[data-type="waf"]' --to-canvas 260,320
-.agents/skills/verify-net-draw/scripts/control-net-draw drag --run v1 --from-canvas 80,80 --to-canvas 420,320
+scripts/control-net-draw drag --run v1 --from-selector '.pitem[data-type="waf"]' --to-canvas 260,320
+scripts/control-net-draw drag --run v1 --from-canvas 80,80 --to-canvas 420,320
 
 # Handle native window.confirm() on Clear canvas
-.agents/skills/verify-net-draw/scripts/control-net-draw click --run v1 --selector '#btnClear' --dialog accept
+scripts/control-net-draw click --run v1 --selector '#btnClear' --dialog accept
 ```
 
 ## Evidence
@@ -107,7 +107,7 @@ All proof artifacts for `--run <id>` live in `/tmp/net-draw-evidence-<id>/` (ove
 Always tear down every run — including failed or interrupted iterations — with:
 
 ```bash
-.agents/skills/verify-net-draw/scripts/control-net-draw stop --run v1
+scripts/control-net-draw stop --run v1
 ```
 
 Cleanup rules enforced by `stop`:
@@ -118,28 +118,28 @@ Cleanup rules enforced by `stop`:
 
 ## Helpers
 
-`.agents/skills/verify-net-draw/scripts/control-net-draw` is the sole helper executable (`--help` prints full usage):
+`scripts/control-net-draw` is the sole helper executable (`--help` prints full usage):
 
 ```bash
 # Lifecycle & health
-.agents/skills/verify-net-draw/scripts/control-net-draw start              --run <id> [--port <n>] [--width 1440] [--height 900] [--evidence-dir <dir>]
-.agents/skills/verify-net-draw/scripts/control-net-draw doctor             --run <id>
-.agents/skills/verify-net-draw/scripts/control-net-draw stop               --run <id>
-.agents/skills/verify-net-draw/scripts/control-net-draw validate-examples  [--repo-root <dir>]
+scripts/control-net-draw start              --run <id> [--port <n>] [--width 1440] [--height 900] [--evidence-dir <dir>]
+scripts/control-net-draw doctor             --run <id>
+scripts/control-net-draw stop               --run <id>
+scripts/control-net-draw validate-examples  [--repo-root <dir>]
 
 # User interactions (real CDP mouse, keyboard, file-chooser, and download events)
-.agents/skills/verify-net-draw/scripts/control-net-draw click         --run <id> (--selector <css> | --role <r> --name <n>) [--nth <i>] [--double] [--shift] [--dialog accept|dismiss]
-.agents/skills/verify-net-draw/scripts/control-net-draw drag          --run <id> (--from-selector <css> | --from-canvas x,y) (--to-selector <css> | --to-canvas x,y) [--shift]
-.agents/skills/verify-net-draw/scripts/control-net-draw fill          --run <id> (--selector <css> | --role <r> --name <n>) --value <text> [--commit enter|blur|none]
-.agents/skills/verify-net-draw/scripts/control-net-draw select        --run <id> --selector <css> --value <optionValue>
-.agents/skills/verify-net-draw/scripts/control-net-draw press         --run <id> --key <key> [--ctrl] [--shift] [--alt] [--meta]
-.agents/skills/verify-net-draw/scripts/control-net-draw upload        --run <id> [--selector '#fileInput'] --file <path>
-.agents/skills/verify-net-draw/scripts/control-net-draw wait-download --run <id> [--match <substr>] [--timeout-ms 15000]
-.agents/skills/verify-net-draw/scripts/control-net-draw reload        --run <id> [--wait-save-ms 450]
-.agents/skills/verify-net-draw/scripts/control-net-draw resize        --run <id> --width <px> --height <px>
+scripts/control-net-draw click         --run <id> (--selector <css> | --role <r> --name <n>) [--nth <i>] [--double] [--shift] [--dialog accept|dismiss]
+scripts/control-net-draw drag          --run <id> (--from-selector <css> | --from-canvas x,y) (--to-selector <css> | --to-canvas x,y) [--shift]
+scripts/control-net-draw fill          --run <id> (--selector <css> | --role <r> --name <n>) --value <text> [--commit enter|blur|none]
+scripts/control-net-draw select        --run <id> --selector <css> --value <optionValue>
+scripts/control-net-draw press         --run <id> --key <key> [--ctrl] [--shift] [--alt] [--meta]
+scripts/control-net-draw upload        --run <id> [--selector '#fileInput'] --file <path>
+scripts/control-net-draw wait-download --run <id> [--match <substr>] [--timeout-ms 15000]
+scripts/control-net-draw reload        --run <id> [--wait-save-ms 450]
+scripts/control-net-draw resize        --run <id> --width <px> --height <px>
 
 # Read-only observation & proof artifacts
-.agents/skills/verify-net-draw/scripts/control-net-draw state         --run <id> [--out <relOrAbs.json>]
-.agents/skills/verify-net-draw/scripts/control-net-draw snapshot-aria --run <id> --out <relOrAbs.aria.txt>
-.agents/skills/verify-net-draw/scripts/control-net-draw screenshot    --run <id> --out <relOrAbs.png>
+scripts/control-net-draw state         --run <id> [--out <relOrAbs.json>]
+scripts/control-net-draw snapshot-aria --run <id> --out <relOrAbs.aria.txt>
+scripts/control-net-draw screenshot    --run <id> --out <relOrAbs.png>
 ```
